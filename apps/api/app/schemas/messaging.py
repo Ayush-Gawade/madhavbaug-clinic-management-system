@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.messaging import (
     DeliveryStatus,
@@ -16,6 +16,7 @@ from app.models.messaging import (
     MessageProcessingStatus,
     MessageType,
 )
+from app.services import media as media_service
 
 
 class MessageRead(BaseModel):
@@ -42,6 +43,14 @@ class MessageRead(BaseModel):
     received_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def media_url(self) -> str | None:
+        """A signed, expiring URL when this message carries stored media."""
+        if not self.media_mime_type:
+            return None
+        return media_service.media_url(self.id)
 
 
 class MessageExceptionRead(BaseModel):

@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     analytics,
     auth,
     finance,
+    media,
     messaging,
     patients,
     schedules,
@@ -21,6 +22,7 @@ api_router.include_router(patients.router)
 api_router.include_router(finance.router)
 api_router.include_router(schedules.router)
 api_router.include_router(messaging.router)
+api_router.include_router(media.router)
 api_router.include_router(alerts.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)

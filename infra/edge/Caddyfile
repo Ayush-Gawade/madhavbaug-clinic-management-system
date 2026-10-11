@@ -1,7 +1,7 @@
 {$PUBLIC_HOST:localhost} {
 	encode gzip zstd
 
-	@api path /api/* /media/* /health /health/* /docs /openapi.json
+	@api path /api/* /health /health/* /docs /openapi.json
 	handle @api {
 		reverse_proxy api:8000
 	}

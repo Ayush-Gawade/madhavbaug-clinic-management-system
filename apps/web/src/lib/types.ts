@@ -331,6 +331,7 @@ export interface WhatsAppMessage {
   text_body: string | null;
   media_reference: string | null;
   media_mime_type: string | null;
+  media_url: string | null;
   template_code: string | null;
   delivery_status: DeliveryStatus | null;
   processing_status: string;

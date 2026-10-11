@@ -71,6 +71,16 @@ def test_render_template() -> None:
     assert rendered == "Hello Asha, your plan is vegan."
 
 
+def test_build_template_parameters_preserves_order_and_tolerates_unknowns() -> None:
+    body = "Hi {{name}}, your {{unknown}} is {{1}}."
+    assert whatsapp.build_template_parameters(body, {"name": "Asha", "1": "ready"}) == [
+        "Asha",
+        "",
+        "ready",
+    ]
+    assert whatsapp.build_template_parameters("No placeholders here.", {}) == []
+
+
 def test_parse_webhook_extracts_messages_and_statuses() -> None:
     payload = {
         "entry": [

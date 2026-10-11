@@ -166,7 +166,15 @@ beyond monitoring; re-run failed extractions with the staff "reanalyze" action.
 ### 7.2 WhatsApp / Meta outage
 Outbound sends fail → instances marked `FAILED` with `delivery_failure` alerts;
 non-response logic never treats a failed delivery as patient non-response.
-Resume dispatch once Meta recovers (`POST /messages/dispatch`).
+Resume dispatch once Meta recovers (`POST /messages/dispatch`). A cluster of
+`template_required` failures means a follow-up outside the 24-hour session window
+has no approved, active template — attach one or bring the patient's replies
+back inside the window (`WHATSAPP_SESSION_WINDOW_HOURS`).
+
+Inbound media is downloaded to the `media_data` volume by a Celery worker and
+served only through short-lived signed URLs (`/api/v1/media/{id}`, TTL
+`MEDIA_URL_TTL_SECONDS`); if downloads fail, check the worker logs and that
+`MEDIA_SIGNING_SECRET` is set.
 
 ### 7.3 Postgres down / readiness degraded
 Bring Postgres back; `api` uses `pool_pre_ping` so stale connections recover.
@@ -198,6 +206,8 @@ currently a local volume.
 - [ ] TLS issued by Caddy for the real domain; HSTS enabled.
 - [ ] `WHATSAPP_APP_SECRET` set and `WEBHOOK_ALLOW_UNSIGNED` unset so unsigned
       webhooks are rejected with 403 (production always enforces signatures).
+- [ ] `WHATSAPP_ENFORCE_SESSION_WINDOW=true` when `WHATSAPP_ENABLED=true` so
+      business-initiated messages outside the 24h window use approved templates.
 - [ ] Debug off; no dev CORS origins; secrets unique and stored outside git.
 - [ ] Backups scheduled and a restore has been rehearsed.
 - [ ] Only 80/443 reachable from the internet.

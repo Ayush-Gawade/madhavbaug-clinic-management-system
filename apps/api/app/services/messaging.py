@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -42,7 +42,7 @@ from app.models.scheduling import (
 )
 from app.models.user import StaffUser
 from app.services import ai as ai_service
-from app.services import ai_queue
+from app.services import ai_queue, media_queue
 from app.services import schedules as schedules_service
 from app.services import whatsapp as whatsapp_client
 
@@ -97,6 +97,47 @@ async def _open_instance(db: AsyncSession, patient_id: uuid.UUID) -> FollowUpIns
     return (await db.execute(stmt)).scalars().first()
 
 
+def template_context(patient: Patient) -> dict[str, str]:
+    """Placeholder values shared by text rendering and template sends.
+
+    Both named (``{{name}}``) and 1-based positional (``{{1}}``) placeholders are
+    populated so a stored body works whether it mirrors the Meta template's
+    numbered variables or uses friendlier names.
+    """
+    first_name = patient.full_name.split(" ")[0] if patient.full_name else ""
+    return {
+        "name": first_name,
+        "patient_name": patient.full_name,
+        "1": first_name,
+        "2": patient.full_name,
+    }
+
+
+async def _last_inbound_at(db: AsyncSession, patient_id: uuid.UUID) -> datetime | None:
+    """When the patient last messaged us, used to decide the send mode."""
+    stmt = select(
+        func.max(func.coalesce(WhatsAppMessage.received_at, WhatsAppMessage.created_at))
+    ).where(
+        WhatsAppMessage.patient_id == patient_id,
+        WhatsAppMessage.direction == MessageDirection.INBOUND,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def _within_session_window(db: AsyncSession, patient_id: uuid.UUID) -> bool:
+    """Whether a free-form (text) reply is allowed for this patient right now.
+
+    Meta permits free-form messages only within 24 hours of the patient's last
+    inbound message; outside that window a business-initiated message must use an
+    approved template.
+    """
+    last_inbound = await _last_inbound_at(db, patient_id)
+    if last_inbound is None:
+        return False
+    window = timedelta(hours=settings.whatsapp_session_window_hours)
+    return datetime.now(UTC) - last_inbound < window
+
+
 async def send_follow_up_message(
     db: AsyncSession,
     *,
@@ -104,22 +145,52 @@ async def send_follow_up_message(
     patient: Patient,
     template: MessageTemplate | None,
     body: str,
+    context: dict[str, str] | None = None,
 ) -> bool:
-    """Send a follow-up text message and persist it with a delivery event.
+    """Send a follow-up message and persist it with a delivery event.
+
+    Inside the Meta 24-hour customer-service window (or when window enforcement
+    is disabled) the rendered ``body`` is sent as free-form text. Outside the
+    window, enforcement requires an approved, active template: the template is
+    sent with positional parameters derived from ``context``. A missing or
+    unapproved template is recorded as a delivery failure rather than sending
+    text Meta would reject.
 
     Shared by first dispatch and reminders so both record identical outbound
-    rows.     Returns whether the provider accepted the message.
+    rows. Returns whether the provider accepted the message.
     """
     if not patient.phone_number:
         return False
-    result = await whatsapp_client.send_text_message(patient.phone_number, body)
+    context = context or {}
+    requires_template = settings.whatsapp_enforce_session_window and not (
+        await _within_session_window(db, patient.id)
+    )
+    if requires_template:
+        if template is None or not template.approved or not template.is_active:
+            result = whatsapp_client.SendResult(
+                ok=False,
+                error_code="template_required",
+                error_message=(
+                    "Outside the 24-hour session window Meta requires an approved, "
+                    "active template; none is configured for this follow-up."
+                ),
+            )
+        else:
+            result = await whatsapp_client.send_template_message(
+                patient.phone_number,
+                template.name,
+                template.language,
+                whatsapp_client.build_template_parameters(template.body, context),
+            )
+    else:
+        result = await whatsapp_client.send_text_message(patient.phone_number, body)
     now = datetime.now(UTC)
     message = WhatsAppMessage(
         patient_id=patient.id,
         follow_up_instance_id=instance.id,
         direction=MessageDirection.OUTBOUND,
         provider_message_id=result.provider_message_id,
-        message_type=MessageType.TEXT,
+        message_type=MessageType.TEMPLATE if requires_template else MessageType.TEXT,
         to_phone=patient.phone_number,
         text_body=body,
         template_code=template.code if template else None,
@@ -220,7 +291,7 @@ async def dispatch_outbound(db: AsyncSession, *, limit: int = 100) -> dict[str, 
             if schedule.message_template_id is not None
             else None
         )
-        context = {"name": patient.full_name.split(" ")[0], "patient_name": patient.full_name}
+        context = template_context(patient)
         body = (
             whatsapp_client.render_template(template.body, context)
             if template
@@ -228,7 +299,7 @@ async def dispatch_outbound(db: AsyncSession, *, limit: int = 100) -> dict[str, 
         )
 
         ok = await send_follow_up_message(
-            db, instance=instance, patient=patient, template=template, body=body
+            db, instance=instance, patient=patient, template=template, body=body, context=context
         )
         if ok:
             instance.status = FollowUpInstanceStatus.SENT
@@ -322,6 +393,11 @@ async def _store_inbound(
             )
         )
         await db.flush()
+
+    # Persist media bytes off the request path; dry-run and AI-only deployments
+    # skip this because there is nothing to download.
+    if settings.whatsapp_enabled and message.media_reference and message.media_mime_type:
+        media_queue.enqueue_inbound_media(message.id)
     return message, True, instance
 
 

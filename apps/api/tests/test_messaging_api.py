@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select, update
@@ -15,6 +16,7 @@ from app.models.user import StaffRole
 from app.services import ai as ai_service
 from app.services import ai_queue
 from app.services import messaging as messaging_service
+from app.services import whatsapp as whatsapp_client
 
 pytestmark = pytest.mark.integration
 
@@ -58,21 +60,52 @@ async def _create_consent(client, headers: dict[str, str], patient_id: str) -> d
     return response.json()
 
 
-async def _create_schedule(client, headers: dict[str, str], patient_id: str) -> dict:
+async def _create_schedule(client, headers: dict[str, str], patient_id: str, **overrides) -> dict:
+    payload = {
+        "patient_id": patient_id,
+        "follow_up_type": "meal_check_in",
+        "recurrence_rule": {"freq": "daily", "interval": 1},
+        "scheduled_local_time": "00:01",
+        "timezone": "Asia/Kolkata",
+        "response_deadline_hours": 12,
+        **overrides,
+    }
+    response = await client.post(f"{API}/schedules", headers=headers, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def _create_template(
+    client, headers: dict[str, str], *, body: str = "Good morning, {{name}}.", approved: bool = True
+) -> dict:
     response = await client.post(
-        f"{API}/schedules",
+        f"{API}/messages/templates",
         headers=headers,
         json={
-            "patient_id": patient_id,
-            "follow_up_type": "meal_check_in",
-            "recurrence_rule": {"freq": "daily", "interval": 1},
-            "scheduled_local_time": "00:01",
-            "timezone": "Asia/Kolkata",
-            "response_deadline_hours": 12,
+            "code": f"CK-{uuid.uuid4().hex[:6].upper()}",
+            "name": "daily_check_in",
+            "category": "scheduled_check_in",
+            "language": "en",
+            "body": body,
+            "approved": approved,
         },
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+async def _queue_dispatchable_instance(
+    client, headers: dict[str, str], patient_id: str, **schedule_overrides
+) -> dict:
+    await _create_consent(client, headers, patient_id)
+    schedule = await _create_schedule(client, headers, patient_id, **schedule_overrides)
+    materialize = await client.post(
+        f"{API}/schedules/{schedule['id']}/materialize", headers=headers
+    )
+    assert materialize.status_code == 200, materialize.text
+    result = await client.post(f"{API}/schedules/process-due", headers=headers)
+    assert result.json()["eligible_to_send"] >= 1
+    return schedule
 
 
 def _webhook_payload(
@@ -618,3 +651,121 @@ async def test_deferred_analysis_helper_persists_extraction_when_row_visible(
         f"{API}/patients/{patient['id']}/ai-extractions", headers=headers
     )
     assert extractions.json()["total"] == 1
+
+
+async def test_outside_window_sends_approved_template(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """Outside the 24h window an approved template must be sent, not free text."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    captured: dict = {}
+
+    async def _template(_to, name, language="en", body_parameters=None):
+        captured["name"] = name
+        captured["language"] = language
+        captured["params"] = body_parameters
+        return whatsapp_client.SendResult(ok=True, provider_message_id="template-1", dry_run=True)
+
+    monkeypatch.setattr(whatsapp_client, "send_template_message", _template)
+
+    owner = unique_email
+    await staff_factory(email=owner, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, owner))
+    patient = await _register(client, headers)
+    template = await _create_template(client, headers, body="Hi {{name}}, time to check in.")
+    await _queue_dispatchable_instance(
+        client, headers, patient["id"], message_template_id=template["id"]
+    )
+
+    dispatched = await client.post(f"{API}/messages/dispatch", headers=headers)
+    assert dispatched.status_code == 200, dispatched.text
+    assert dispatched.json()["sent"] >= 1
+    assert captured["name"] == "daily_check_in"
+    assert captured["language"] == "en"
+    assert captured["params"] == ["Messaging"]
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    outbound = next(m for m in convo.json()["items"] if m["direction"] == "outbound")
+    assert outbound["message_type"] == "template"
+    assert outbound["template_code"] == template["code"]
+    assert outbound["delivery_status"] == "sent"
+
+
+async def test_outside_window_without_template_fails_cleanly(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """With no approved template, dispatch must fail loudly rather than send text."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+
+    owner = unique_email
+    await staff_factory(email=owner, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, owner))
+    patient = await _register(client, headers)
+    await _queue_dispatchable_instance(client, headers, patient["id"])
+
+    dispatched = await client.post(f"{API}/messages/dispatch", headers=headers)
+    assert dispatched.status_code == 200, dispatched.text
+    assert dispatched.json()["failed"] >= 1
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    outbound = next(m for m in convo.json()["items"] if m["direction"] == "outbound")
+    assert outbound["delivery_status"] == "failed"
+    assert outbound["error_code"] == "template_required"
+
+    alerts = await client.get(
+        f"{API}/alerts", headers=headers, params={"patient_id": patient["id"]}
+    )
+    assert any(a["alert_type"] == "delivery_failure" for a in alerts.json()["items"])
+
+
+async def test_inside_window_uses_free_form_text(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """A recent inbound message opens the window, so free-form text is allowed."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    text_calls: list[str] = []
+    template_calls: list[str] = []
+
+    async def _text(_to, body):
+        text_calls.append(body)
+        return whatsapp_client.SendResult(ok=True, provider_message_id="text-1", dry_run=True)
+
+    async def _template(_to, name, language="en", body_parameters=None):
+        template_calls.append(name)
+        return whatsapp_client.SendResult(ok=True, provider_message_id="template-1", dry_run=True)
+
+    monkeypatch.setattr(whatsapp_client, "send_text_message", _text)
+    monkeypatch.setattr(whatsapp_client, "send_template_message", _template)
+
+    owner = unique_email
+    await staff_factory(email=owner, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, owner))
+    patient = await _register(client, headers)
+
+    # A fresh inbound message (current timestamp) keeps the session window open.
+    fresh = str(int(datetime.now(UTC).timestamp()))
+    inbound = await _post_webhook(
+        client,
+        _webhook_payload(
+            from_phone=patient["phone_number"],
+            message_id="wamid.WINDOW1",
+            text="Hi, checking in",
+            timestamp=fresh,
+        ),
+    )
+    assert inbound.status_code == 200, inbound.text
+    assert inbound.json()["messages"] == 1
+
+    template = await _create_template(client, headers)
+    await _queue_dispatchable_instance(
+        client, headers, patient["id"], message_template_id=template["id"]
+    )
+
+    dispatched = await client.post(f"{API}/messages/dispatch", headers=headers)
+    assert dispatched.status_code == 200, dispatched.text
+    assert dispatched.json()["sent"] >= 1
+    assert text_calls and not template_calls
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    outbound = next(m for m in convo.json()["items"] if m["direction"] == "outbound")
+    assert outbound["message_type"] == "text"

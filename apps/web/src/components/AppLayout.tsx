@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/patients", label: "Patients" },
   { to: "/follow-ups", label: "Follow-ups" },
   { to: "/alerts", label: "Alerts" },
+  { to: "/message-exceptions", label: "Message exceptions" },
   { to: "/analytics", label: "Analytics" },
   { to: "/finance", label: "Finance" },
 ];

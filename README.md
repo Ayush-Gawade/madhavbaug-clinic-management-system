@@ -16,8 +16,8 @@ treatment-level profitability analysis.
 | Database | PostgreSQL 16                                                       |
 | Jobs     | Celery + Redis (broker/results) + Celery Beat (scheduler)           |
 | AI       | OpenAI gpt-4o (text) + gpt-4o vision (meal images), structured JSON |
-| Messaging| Meta WhatsApp Cloud API                                            |
-| Media    | Inbound media referenced by provider id (storage + signed URLs not yet implemented) |
+| Messaging| Meta WhatsApp Cloud API (24h session window, approved templates)   |
+| Media    | Inbound media stored on disk, served via short-lived signed URLs    |
 | Infra    | Docker Compose (dev + single-VPS prod), Caddy reverse proxy         |
 
 ## Repository layout

@@ -322,3 +322,17 @@ def render_template(body: str, context: dict[str, str]) -> str:
         return context.get(match.group(1).strip(), "")
 
     return re.sub(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", _replace, body)
+
+
+def build_template_parameters(body: str, context: dict[str, str]) -> list[str]:
+    """Resolve a template body's ``{{placeholders}}`` to Meta's positional list.
+
+    Meta templates receive positional body parameters, so the order in which the
+    placeholders appear in the stored body is what gets sent. Unknown
+    placeholders resolve to an empty string rather than raising, so a template
+    edit can never crash a dispatch run.
+    """
+    return [
+        context.get(match.group(1).strip(), "")
+        for match in re.finditer(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", body)
+    ]

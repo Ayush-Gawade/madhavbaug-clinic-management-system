@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     webhook_allow_unsigned: bool = False
     whatsapp_api_version: str = "v21.0"
     whatsapp_graph_base_url: str = "https://graph.facebook.com"
+    # Meta only allows free-form (text) messages within 24 hours of the patient's
+    # last inbound message. Business-initiated messages outside that window must
+    # use an approved template; when enforcement is on, dispatch refuses to send
+    # free-form text that Meta would reject (error 131047).
+    whatsapp_session_window_hours: int = 24
+    whatsapp_enforce_session_window: bool = False
 
     # -- Bootstrap admin ----------------------------------------------------
     bootstrap_admin_email: str = "admin@madhavbaug.in"
@@ -151,6 +157,11 @@ class Settings(BaseSettings):
             problems.append("WHATSAPP_WEBHOOK_REQUIRE_SIGNATURE must be true in production")
         if self.webhook_allow_unsigned:
             problems.append("WEBHOOK_ALLOW_UNSIGNED must be false in production")
+        if self.whatsapp_enabled and not self.whatsapp_enforce_session_window:
+            problems.append(
+                "WHATSAPP_ENFORCE_SESSION_WINDOW must be true in production so "
+                "business-initiated messages outside the 24h window use a template"
+            )
         if self.ai_enabled and not self.openai_api_key:
             problems.append("OPENAI_API_KEY is required when AI_ENABLED is true")
         if self.ai_enabled and self.ai_processing_mode != "deferred":

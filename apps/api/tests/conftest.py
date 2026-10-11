@@ -90,6 +90,21 @@ def _allow_unsigned_webhooks_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "webhook_allow_unsigned", True)
 
 
+@pytest.fixture(autouse=True)
+def _whatsapp_dry_run_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin WhatsApp to deterministic dry-run defaults for every test.
+
+    A developer's local ``.env`` may hold live Meta credentials. Tests must never
+    perform real network sends and must not depend on a personal verify token, so
+    the send paths dry-run and the webhook handshake uses the known token.
+    """
+    monkeypatch.setattr(settings, "whatsapp_enabled", False)
+    monkeypatch.setattr(settings, "whatsapp_access_token", "")
+    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "")
+    monkeypatch.setattr(settings, "whatsapp_verify_token", "verify-token")
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", False)
+
+
 async def create_staff(
     session_factory: async_sessionmaker[AsyncSession],
     *,

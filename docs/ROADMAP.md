@@ -361,9 +361,43 @@ gaps. They are remediated as follows (backend suite now 163 tests):
   unless the non-production-only `WEBHOOK_ALLOW_UNSIGNED` opt-out is enabled
   (refused in production).
 
+## WhatsApp completeness (Phase C)
+
+A focused audit of the WhatsApp integration found the inbound path largely
+complete but several outbound/media/ops pieces missing. They are now
+implemented (backend suite now 180 tests; web suite 15):
+
+- **C1 session-window-aware outbound** (`core/config.py`,
+  `services/messaging.py`, `services/non_response.py`, `services/whatsapp.py`):
+  Meta allows free-form text only within 24 hours of the patient's last inbound
+  message. With `WHATSAPP_ENFORCE_SESSION_WINDOW=true`, dispatch and reminders
+  send an **approved, active template** outside the window (positional
+  parameters derived from the shared `{{placeholder}}` context) and record a
+  clear `template_required` failure — instead of sending text Meta rejects with
+  error 131047 — when no usable template is configured. Production requires the
+  flag when `WHATSAPP_ENABLED=true`.
+- **C2 media persistence + signed serving** (`services/media.py`,
+  `services/media_queue.py`, `workers/tasks.py`,
+  `api/v1/endpoints/media.py`): inbound media bytes are downloaded by a Celery
+  worker and stored under `MEDIA_ROOT`; staff view them through short-lived
+  HMAC-signed URLs (`GET /api/v1/media/{id}?token=…`, TTL
+  `MEDIA_URL_TTL_SECONDS`) that never expose the provider id or a bare file
+  path. `MessageRead.media_url` carries the link and the patient conversation
+  tab renders it.
+- **C3 exception review UI** (`web/src/routes/MessageExceptionsPage.tsx`): the
+  staff exception queue (`/messages/exceptions`) now has a page — filter by
+  status, inspect reason/details, and resolve or dismiss with notes — wired into
+  the sidebar navigation.
+- **C4 test isolation** (`tests/conftest.py`): the suite pins WhatsApp to
+  dry-run defaults so a developer's live Meta credentials in `.env` can never
+  trigger real network sends or change the webhook verify token during tests.
+
 ## Remaining increments (planned)
 
-All planned increments (1–11) are complete. Further work is driven by the PRD's
-open questions (approved thresholds, live WhatsApp/AI enablement, financial
-inputs, media retention) and by operational feedback once the clinic goes live.
+All planned increments (1–11) are complete, and the Phase C WhatsApp gaps above
+are closed. Further work is driven by the PRD's open questions (approved
+thresholds, live WhatsApp/AI enablement, financial inputs, media retention
+policy) and by operational feedback once the clinic goes live. Known
+non-blocking follow-ups: outbound retry/backoff for transient provider errors,
+and interactive/outbound media composition.
 

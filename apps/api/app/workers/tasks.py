@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_sessionmaker
+from app.models.messaging import WhatsAppMessage
 from app.workers.celery_app import celery_app
 
 
@@ -109,6 +110,35 @@ def analyze_inbound_message(self: Any, message_id: str) -> dict[str, Any]:
         result = _run(
             lambda session: ai_service.analyze_message_by_id(session, uuid.UUID(message_id))
         )
+    except Exception as exc:  # pragma: no cover - exercised against live infra
+        raise self.retry(exc=exc) from exc
+    if not result.get("found", False):
+        raise self.retry(countdown=2)
+    return result
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.workers.tasks.store_inbound_message_media",
+    bind=True,
+    max_retries=5,
+)
+def store_inbound_message_media(self: Any, message_id: str) -> dict[str, Any]:
+    """Download and persist one stored inbound message's media.
+
+    The webhook enqueues this before its transaction commits, so the row may not
+    be visible on the first attempt; a short retry covers that window.
+    """
+    from app.services import media as media_service
+
+    async def _store(session: AsyncSession) -> dict[str, Any]:
+        message = await session.get(WhatsAppMessage, uuid.UUID(message_id))
+        if message is None:
+            return {"found": False, "stored": False}
+        stored = await media_service.store_inbound_media(message)
+        return {"found": True, "stored": stored}
+
+    try:
+        result = _run(_store)
     except Exception as exc:  # pragma: no cover - exercised against live infra
         raise self.retry(exc=exc) from exc
     if not result.get("found", False):

@@ -187,14 +187,19 @@ async def _send_reminder(
         if schedule.message_template_id is not None
         else None
     )
-    context = {"name": patient.full_name.split(" ")[0], "patient_name": patient.full_name}
+    context = messaging_service.template_context(patient)
     base = (
         whatsapp_client.render_template(template.body, context)
         if template is not None
         else _DEFAULT_CHECK_IN_BODY
     )
     ok = await messaging_service.send_follow_up_message(
-        db, instance=instance, patient=patient, template=template, body=_REMINDER_PREFIX + base
+        db,
+        instance=instance,
+        patient=patient,
+        template=template,
+        body=_REMINDER_PREFIX + base,
+        context=context,
     )
     if not ok:
         await messaging_service.raise_delivery_failure(

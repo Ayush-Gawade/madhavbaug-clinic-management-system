@@ -8,6 +8,7 @@ import { DashboardPage } from "@/routes/DashboardPage";
 import { FinancePage } from "@/routes/FinancePage";
 import { FollowUpsPage } from "@/routes/FollowUpsPage";
 import { LoginPage } from "@/routes/LoginPage";
+import { MessageExceptionsPage } from "@/routes/MessageExceptionsPage";
 import { NotFoundPage } from "@/routes/NotFoundPage";
 import { PatientDetailPage } from "@/routes/PatientDetailPage";
 import { PatientsPage } from "@/routes/PatientsPage";
@@ -24,6 +25,7 @@ export default function App(): JSX.Element {
           <Route path="/finance" element={<FinancePage />} />
           <Route path="/follow-ups" element={<FollowUpsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/message-exceptions" element={<MessageExceptionsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
         </Route>
       </Route>
