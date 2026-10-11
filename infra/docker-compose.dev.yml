@@ -1,0 +1,45 @@
+# Development infrastructure only: PostgreSQL + Redis.
+# Application processes run locally (uvicorn/celery/vite) for fast reload.
+#
+#   docker compose -f infra/docker-compose.dev.yml up -d
+#
+name: madhavbaug-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: madhavbaug-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-madhavbaug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-madhavbaug}
+      POSTGRES_DB: ${POSTGRES_DB:-madhavbaug}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-madhavbaug} -d ${POSTGRES_DB:-madhavbaug}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: madhavbaug-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

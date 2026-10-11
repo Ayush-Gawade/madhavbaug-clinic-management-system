@@ -1,0 +1,147 @@
+# Full production-oriented stack for a single VPS.
+#
+#   cp ../.env.example ../.env      # then edit real values
+#   docker compose -f infra/docker-compose.yml --env-file ../.env up -d --build
+#
+# Public entrypoint is the `edge` Caddy service (ports 80/443): it serves the
+# built SPA and reverse-proxies /api, /media and /health to the API.
+name: madhavbaug
+
+x-api-env: &api-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-madhavbaug}:${POSTGRES_PASSWORD:-madhavbaug}@postgres:5432/${POSTGRES_DB:-madhavbaug}
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  MEDIA_ROOT: /data/media
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-madhavbaug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-madhavbaug}
+      POSTGRES_DB: ${POSTGRES_DB:-madhavbaug}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-madhavbaug}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    logging: *default-logging
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ../.env
+    environment:
+      <<: *api-env
+      MIGRATE_ON_START: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media_data:/data/media
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+
+  worker:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "-l", "info"]
+    env_file:
+      - ../.env
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media_data:/data/media
+    stop_grace_period: 60s
+
+  beat:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "-l", "info"]
+    env_file:
+      - ../.env
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  edge:
+    build:
+      context: ..
+      dockerfile: infra/edge/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+  caddy_data:
+  caddy_config:
