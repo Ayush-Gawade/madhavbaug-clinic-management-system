@@ -10,11 +10,42 @@ from pydantic import BaseModel
 
 from app.models.alerts import AlertPriority
 from app.models.clinical import PatientCategoryType
+from app.models.messaging import DeliveryStatus, MessageDirection, MessageType
 
 
 class CategoryCount(BaseModel):
     category_type: PatientCategoryType
     count: int
+
+
+class OverviewMessage(BaseModel):
+    """One recent WhatsApp message surfaced in the messaging overview."""
+
+    id: uuid.UUID
+    patient_id: uuid.UUID | None
+    patient_name: str | None
+    direction: MessageDirection
+    message_type: MessageType
+    text_body: str | None
+    delivery_status: DeliveryStatus | None
+    occurred_at: datetime | None
+
+
+class MessagingOverview(BaseModel):
+    """WhatsApp traffic, delivery and review queues for a filtered patient scope."""
+
+    date_from: date
+    date_to: date
+    patients_in_scope: int
+    messages_sent: int
+    replies_received: int
+    non_responders: int
+    delivery_failures: int
+    critical_alerts: int
+    pending_observation_reviews: int
+    ai_needs_clarification: int
+    open_message_exceptions: int
+    recent_messages: list[OverviewMessage]
 
 
 class ClinicOverview(BaseModel):

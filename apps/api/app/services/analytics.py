@@ -11,8 +11,9 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai import AIExtraction, AIExtractionStatus
@@ -23,6 +24,7 @@ from app.models.clinical import (
     ObservationSource,
     Patient,
     PatientCategory,
+    PatientCategoryType,
     PatientStatus,
 )
 from app.models.finance import (
@@ -49,7 +51,9 @@ from app.schemas.analytics import (
     DailyOperations,
     FinanceOverview,
     FinanceTreatmentLine,
+    MessagingOverview,
     ObservationTrend,
+    OverviewMessage,
     TrendPoint,
 )
 from app.services import finance as finance_service
@@ -139,6 +143,208 @@ async def clinic_overview(db: AsyncSession) -> ClinicOverview:
         pending_observation_reviews=pending_observation_reviews,
         ai_needs_clarification=ai_needs_clarification,
         open_message_exceptions=open_message_exceptions,
+    )
+
+
+# -- Messaging overview (WhatsApp screen A) -----------------------------------
+
+
+async def _resolve_patient_scope(
+    db: AsyncSession,
+    *,
+    category: PatientCategoryType | None,
+    doctor_id: uuid.UUID | None,
+    patient_status: PatientStatus | None,
+    date_from: date,
+    date_to: date,
+) -> list[uuid.UUID]:
+    """Patient ids matching the overview filters (all patients when unfiltered)."""
+    stmt = select(Patient.id)
+    filters: list[ColumnElement[bool]] = []
+    if patient_status is not None:
+        filters.append(Patient.status == patient_status)
+    if doctor_id is not None:
+        filters.append(Patient.assigned_clinician_id == doctor_id)
+    if category is not None:
+        filters.append(
+            Patient.id.in_(
+                select(PatientCategory.patient_id).where(
+                    PatientCategory.category_type == category,
+                    or_(
+                        PatientCategory.effective_from.is_(None),
+                        PatientCategory.effective_from <= date_to,
+                    ),
+                    or_(
+                        PatientCategory.effective_to.is_(None),
+                        PatientCategory.effective_to >= date_from,
+                    ),
+                )
+            )
+        )
+    if filters:
+        stmt = stmt.where(*filters)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def messaging_overview(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    category: PatientCategoryType | None = None,
+    doctor_id: uuid.UUID | None = None,
+    patient_status: PatientStatus | None = None,
+) -> MessagingOverview:
+    """WhatsApp traffic and review queues for a filtered patient scope (screen A)."""
+    scoped = category is not None or doctor_id is not None or patient_status is not None
+    scope_ids = await _resolve_patient_scope(
+        db,
+        category=category,
+        doctor_id=doctor_id,
+        patient_status=patient_status,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    if scoped and not scope_ids:
+        return MessagingOverview(
+            date_from=date_from,
+            date_to=date_to,
+            patients_in_scope=0,
+            messages_sent=0,
+            replies_received=0,
+            non_responders=0,
+            delivery_failures=0,
+            critical_alerts=0,
+            pending_observation_reviews=0,
+            ai_needs_clarification=0,
+            open_message_exceptions=0,
+            recent_messages=[],
+        )
+
+    async def scoped_count(stmt: Select[Any], scope_column: Any) -> int:
+        if scoped:
+            stmt = stmt.where(scope_column.in_(scope_ids))
+        return int((await db.execute(stmt)).scalar_one())
+
+    sent_stmt = (
+        select(func.count())
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.OUTBOUND,
+            WhatsAppMessage.sent_at.is_not(None),
+            func.date(WhatsAppMessage.sent_at) >= date_from,
+            func.date(WhatsAppMessage.sent_at) <= date_to,
+        )
+    )
+    messages_sent = await scoped_count(sent_stmt, WhatsAppMessage.patient_id)
+
+    replies_stmt = (
+        select(func.count())
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.INBOUND,
+            WhatsAppMessage.received_at.is_not(None),
+            func.date(WhatsAppMessage.received_at) >= date_from,
+            func.date(WhatsAppMessage.received_at) <= date_to,
+        )
+    )
+    replies_received = await scoped_count(replies_stmt, WhatsAppMessage.patient_id)
+
+    failures_stmt = (
+        select(func.count())
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.OUTBOUND,
+            WhatsAppMessage.delivery_status == DeliveryStatus.FAILED,
+            func.date(func.coalesce(WhatsAppMessage.sent_at, WhatsAppMessage.created_at))
+            >= date_from,
+            func.date(func.coalesce(WhatsAppMessage.sent_at, WhatsAppMessage.created_at))
+            <= date_to,
+        )
+    )
+    delivery_failures = await scoped_count(failures_stmt, WhatsAppMessage.patient_id)
+
+    non_responders_stmt = (
+        select(func.count(func.distinct(FollowUpInstance.patient_id)))
+        .select_from(FollowUpInstance)
+        .where(FollowUpInstance.status.in_((*_AWAITING_STATUSES, FollowUpInstanceStatus.OVERDUE)))
+    )
+    non_responders = await scoped_count(non_responders_stmt, FollowUpInstance.patient_id)
+
+    critical_stmt = (
+        select(func.count())
+        .select_from(Alert)
+        .where(Alert.status == AlertStatus.OPEN, Alert.priority == AlertPriority.URGENT)
+    )
+    critical_alerts = await scoped_count(critical_stmt, Alert.patient_id)
+
+    reviews_stmt = (
+        select(func.count())
+        .select_from(Observation)
+        .where(Observation.review_status == ObservationReviewStatus.PENDING)
+    )
+    pending_observation_reviews = await scoped_count(reviews_stmt, Observation.patient_id)
+
+    ai_stmt = (
+        select(func.count())
+        .select_from(AIExtraction)
+        .where(AIExtraction.status == AIExtractionStatus.NEEDS_CLARIFICATION)
+    )
+    ai_needs_clarification = await scoped_count(ai_stmt, AIExtraction.patient_id)
+
+    exceptions_stmt = (
+        select(func.count())
+        .select_from(MessageException)
+        .where(MessageException.status == ExceptionStatus.OPEN)
+    )
+    open_message_exceptions = await scoped_count(exceptions_stmt, MessageException.patient_id)
+
+    occurred = func.coalesce(
+        WhatsAppMessage.sent_at,
+        WhatsAppMessage.received_at,
+        WhatsAppMessage.created_at,
+    )
+    recent_stmt = (
+        select(WhatsAppMessage, Patient.full_name)
+        .outerjoin(Patient, Patient.id == WhatsAppMessage.patient_id)
+        .where(
+            func.date(occurred) >= date_from,
+            func.date(occurred) <= date_to,
+        )
+        .order_by(occurred.desc())
+        .limit(10)
+    )
+    if scoped:
+        recent_stmt = recent_stmt.where(WhatsAppMessage.patient_id.in_(scope_ids))
+    recent_rows = (await db.execute(recent_stmt)).all()
+    recent_messages = [
+        OverviewMessage(
+            id=message.id,
+            patient_id=message.patient_id,
+            patient_name=name,
+            direction=message.direction,
+            message_type=message.message_type,
+            text_body=message.text_body,
+            delivery_status=message.delivery_status,
+            occurred_at=message.sent_at or message.received_at or message.created_at,
+        )
+        for message, name in recent_rows
+    ]
+
+    patients_in_scope = len(scope_ids) if scoped else await _count(db, Patient)
+    return MessagingOverview(
+        date_from=date_from,
+        date_to=date_to,
+        patients_in_scope=patients_in_scope,
+        messages_sent=messages_sent,
+        replies_received=replies_received,
+        non_responders=non_responders,
+        delivery_failures=delivery_failures,
+        critical_alerts=critical_alerts,
+        pending_observation_reviews=pending_observation_reviews,
+        ai_needs_clarification=ai_needs_clarification,
+        open_message_exceptions=open_message_exceptions,
+        recent_messages=recent_messages,
     )
 
 

@@ -12,12 +12,14 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import DbSession, require_roles
 from app.api.v1.endpoints.patients import ClinicalStaff
 from app.core.config import settings
+from app.models.clinical import PatientCategoryType, PatientStatus
 from app.models.user import StaffRole, StaffUser
 from app.schemas.analytics import (
     AdherenceSummary,
     ClinicOverview,
     DailyOperations,
     FinanceOverview,
+    MessagingOverview,
     ObservationTrend,
 )
 from app.services import analytics as analytics_service
@@ -50,6 +52,35 @@ async def clinic_overview(db: DbSession, actor: ClinicalStaff) -> ClinicOverview
 )
 async def daily_operations(db: DbSession, actor: ClinicalStaff) -> DailyOperations:
     return await analytics_service.daily_operations(db)
+
+
+@router.get(
+    "/messaging",
+    response_model=MessagingOverview,
+    summary=(
+        "WhatsApp traffic, delivery failures and review queues for a filtered "
+        "patient scope (date, category, doctor, patient status)"
+    ),
+)
+async def messaging_overview(
+    db: DbSession,
+    actor: ClinicalStaff,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    category: Annotated[PatientCategoryType | None, Query()] = None,
+    doctor_id: Annotated[uuid.UUID | None, Query()] = None,
+    patient_status: Annotated[PatientStatus | None, Query(alias="status")] = None,
+) -> MessagingOverview:
+    resolved_to = date_to or _today()
+    resolved_from = date_from or resolved_to
+    return await analytics_service.messaging_overview(
+        db,
+        date_from=resolved_from,
+        date_to=resolved_to,
+        category=category,
+        doctor_id=doctor_id,
+        patient_status=patient_status,
+    )
 
 
 @router.get(

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -494,6 +494,59 @@ async def list_conversation(
             .where(WhatsAppMessage.patient_id == patient_id)
         )
     ).scalar_one()
+    rows = list(
+        (
+            await db.execute(
+                stmt.order_by(WhatsAppMessage.created_at.desc())
+                .offset(pagination.offset)
+                .limit(pagination.limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return rows, total
+
+
+async def list_messages(
+    db: AsyncSession,
+    *,
+    direction: MessageDirection | None = None,
+    delivery_status: DeliveryStatus | None = None,
+    patient_id: uuid.UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    search: str | None = None,
+    pagination: PageParams,
+) -> tuple[list[WhatsAppMessage], int]:
+    """Clinic-wide message list with transport/search filters (screens C and D)."""
+    filters: list[Any] = []
+    if direction is not None:
+        filters.append(WhatsAppMessage.direction == direction)
+    if delivery_status is not None:
+        filters.append(WhatsAppMessage.delivery_status == delivery_status)
+    if patient_id is not None:
+        filters.append(WhatsAppMessage.patient_id == patient_id)
+    if search:
+        filters.append(WhatsAppMessage.text_body.ilike(f"%{search}%"))
+
+    occurred = func.coalesce(
+        WhatsAppMessage.sent_at,
+        WhatsAppMessage.received_at,
+        WhatsAppMessage.created_at,
+    )
+    if date_from is not None:
+        filters.append(func.date(occurred) >= date_from)
+    if date_to is not None:
+        filters.append(func.date(occurred) <= date_to)
+
+    stmt = select(WhatsAppMessage)
+    count_stmt = select(func.count()).select_from(WhatsAppMessage)
+    if filters:
+        stmt = stmt.where(*filters)
+        count_stmt = count_stmt.where(*filters)
+
+    total = (await db.execute(count_stmt)).scalar_one()
     rows = list(
         (
             await db.execute(

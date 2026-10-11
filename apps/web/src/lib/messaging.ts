@@ -14,6 +14,29 @@ export async function listPatientMessages(
   return apiFetch<Page<WhatsAppMessage>>(`/patients/${patientId}/messages${suffix}`);
 }
 
+export async function listMessages(params?: {
+  direction?: string;
+  delivery_status?: string;
+  patient_id?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  page?: number;
+  size?: number;
+}): Promise<Page<WhatsAppMessage>> {
+  const query = new URLSearchParams();
+  if (params?.direction) query.set("direction", params.direction);
+  if (params?.delivery_status) query.set("delivery_status", params.delivery_status);
+  if (params?.patient_id) query.set("patient_id", params.patient_id);
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.size) query.set("size", String(params.size));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<Page<WhatsAppMessage>>(`/messages${suffix}`);
+}
+
 export async function listExceptions(params?: {
   status?: string;
   page?: number;

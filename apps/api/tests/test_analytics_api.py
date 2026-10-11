@@ -8,6 +8,13 @@ from decimal import Decimal
 
 import pytest
 
+from app.models.messaging import (
+    DeliveryStatus,
+    MessageDirection,
+    MessageProcessingStatus,
+    MessageType,
+    WhatsAppMessage,
+)
 from app.models.user import StaffRole
 
 pytestmark = pytest.mark.integration
@@ -278,3 +285,146 @@ async def test_finance_overview_role_gating(client, staff_factory, unique_email)
     assert doctor_finance.status_code == 403
     assert finance_finance.status_code == 200
     assert finance_overview.status_code == 403
+
+
+async def test_messaging_overview_counts_traffic_and_filters_by_category(
+    client, staff_factory, unique_email, session_factory
+) -> None:
+    """Screen A: per-day WhatsApp traffic, failures and category/date filters."""
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+
+    today = datetime.now(UTC).date()
+    params = {"date_from": today.isoformat(), "date_to": today.isoformat()}
+    baseline = (
+        await client.get(f"{API}/analytics/messaging", headers=headers, params=params)
+    ).json()
+    baseline_cat = (
+        await client.get(
+            f"{API}/analytics/messaging",
+            headers=headers,
+            params={**params, "category": "diabetes"},
+        )
+    ).json()
+
+    older_day = (datetime.now(UTC) - timedelta(days=1)).date()
+    older_params = {"date_from": older_day.isoformat(), "date_to": older_day.isoformat()}
+    older_baseline = (
+        await client.get(f"{API}/analytics/messaging", headers=headers, params=older_params)
+    ).json()
+
+    diabetes = await _register(client, headers)
+    obesity = await _register(client, headers)
+    category = await client.post(
+        f"{API}/patients/{diabetes['id']}/categories",
+        headers=headers,
+        json={"category_type": "diabetes"},
+    )
+    assert category.status_code == 201, category.text
+
+    now = datetime.now(UTC)
+    yesterday = now - timedelta(days=1)
+    diabetes_id = uuid.UUID(diabetes["id"])
+    obesity_id = uuid.UUID(obesity["id"])
+    async with session_factory() as session:
+        session.add_all(
+            [
+                WhatsAppMessage(
+                    patient_id=diabetes_id,
+                    direction=MessageDirection.OUTBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Morning check-in",
+                    delivery_status=DeliveryStatus.SENT,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    sent_at=now,
+                ),
+                WhatsAppMessage(
+                    patient_id=diabetes_id,
+                    direction=MessageDirection.INBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="My sugar is 130 today",
+                    delivery_status=None,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    received_at=now,
+                ),
+                WhatsAppMessage(
+                    patient_id=diabetes_id,
+                    direction=MessageDirection.OUTBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Failed delivery",
+                    delivery_status=DeliveryStatus.FAILED,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    sent_at=now,
+                ),
+                WhatsAppMessage(
+                    patient_id=diabetes_id,
+                    direction=MessageDirection.INBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Old reply",
+                    delivery_status=None,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    received_at=yesterday,
+                ),
+                WhatsAppMessage(
+                    patient_id=obesity_id,
+                    direction=MessageDirection.OUTBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Weight check-in",
+                    delivery_status=DeliveryStatus.SENT,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    sent_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    overview = await client.get(f"{API}/analytics/messaging", headers=headers, params=params)
+    assert overview.status_code == 200, overview.text
+    body = overview.json()
+    assert body["patients_in_scope"] == baseline["patients_in_scope"] + 2
+    assert body["messages_sent"] == baseline["messages_sent"] + 3
+    assert body["replies_received"] == baseline["replies_received"] + 1
+    assert body["delivery_failures"] == baseline["delivery_failures"] + 1
+    assert any(item["text_body"] == "My sugar is 130 today" for item in body["recent_messages"])
+
+    scoped = await client.get(
+        f"{API}/analytics/messaging",
+        headers=headers,
+        params={**params, "category": "diabetes"},
+    )
+    assert scoped.status_code == 200, scoped.text
+    scoped_body = scoped.json()
+    assert scoped_body["patients_in_scope"] == baseline_cat["patients_in_scope"] + 1
+    assert scoped_body["messages_sent"] == baseline_cat["messages_sent"] + 2
+    assert scoped_body["replies_received"] == baseline_cat["replies_received"] + 1
+    assert scoped_body["delivery_failures"] == baseline_cat["delivery_failures"] + 1
+
+    older = await client.get(f"{API}/analytics/messaging", headers=headers, params=older_params)
+    assert older.status_code == 200, older.text
+    older_body = older.json()
+    assert older_body["messages_sent"] == older_baseline["messages_sent"]
+    assert older_body["replies_received"] == older_baseline["replies_received"] + 1
+
+
+async def test_messaging_overview_unknown_category_returns_zero_counts(
+    client, staff_factory, unique_email
+) -> None:
+    """A category with no patients must produce an empty (not error) overview."""
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+
+    today = datetime.now(UTC).date()
+    response = await client.get(
+        f"{API}/analytics/messaging",
+        headers=headers,
+        params={
+            "category": "thyroid",
+            "date_from": today.isoformat(),
+            "date_to": today.isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["patients_in_scope"] == 0
+    assert body["messages_sent"] == 0
+    assert body["recent_messages"] == []

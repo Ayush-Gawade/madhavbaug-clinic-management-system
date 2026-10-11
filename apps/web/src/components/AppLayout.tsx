@@ -4,7 +4,10 @@ import { useAuth } from "@/lib/auth-context";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true },
+  { to: "/whatsapp", label: "WhatsApp" },
+  { to: "/queues", label: "Queues" },
   { to: "/patients", label: "Patients" },
+  { to: "/scheduler", label: "Scheduler" },
   { to: "/follow-ups", label: "Follow-ups" },
   { to: "/alerts", label: "Alerts" },
   { to: "/message-exceptions", label: "Message exceptions" },

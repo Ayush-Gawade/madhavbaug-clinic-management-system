@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -12,7 +13,11 @@ from fastapi.responses import PlainTextResponse
 from app.api.deps import DbSession, Pagination, require_roles
 from app.core.errors import PermissionDeniedError, ValidationError
 from app.core.pagination import Page
-from app.models.messaging import ExceptionStatus
+from app.models.messaging import (
+    DeliveryStatus,
+    ExceptionStatus,
+    MessageDirection,
+)
 from app.models.user import StaffRole, StaffUser
 from app.schemas.messaging import (
     DispatchResult,
@@ -85,6 +90,40 @@ async def list_patient_messages(
     patient_id: uuid.UUID, db: DbSession, actor: MessagingStaff, pagination: Pagination
 ) -> Page[MessageRead]:
     messages, total = await messaging_service.list_conversation(db, patient_id, pagination)
+    return Page[MessageRead].create(
+        [MessageRead.model_validate(m) for m in messages],
+        total=total,
+        page=pagination.page,
+        size=pagination.size,
+    )
+
+
+@router.get(
+    "/messages",
+    response_model=Page[MessageRead],
+    summary="Clinic-wide message list (direction, delivery status, date and text filters)",
+)
+async def list_all_messages(
+    db: DbSession,
+    actor: MessagingStaff,
+    pagination: Pagination,
+    direction: MessageDirection | None = None,
+    delivery_status: DeliveryStatus | None = None,
+    patient_id: uuid.UUID | None = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    search: Annotated[str | None, Query(min_length=1)] = None,
+) -> Page[MessageRead]:
+    messages, total = await messaging_service.list_messages(
+        db,
+        direction=direction,
+        delivery_status=delivery_status,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        pagination=pagination,
+    )
     return Page[MessageRead].create(
         [MessageRead.model_validate(m) for m in messages],
         total=total,

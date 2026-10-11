@@ -9,6 +9,7 @@ import type {
   Page,
   RecurrenceRule,
   ScheduleStatus,
+  TemplateCategory,
 } from "./types";
 
 export interface ScheduleCreatePayload {
@@ -120,4 +121,34 @@ export async function getFollowUpDayCount(): Promise<{
 
 export async function listTemplates(activeOnly = true): Promise<MessageTemplate[]> {
   return apiFetch<MessageTemplate[]>(`/messages/templates?active_only=${activeOnly}`);
+}
+
+export interface TemplateCreatePayload {
+  code: string;
+  name: string;
+  category: TemplateCategory;
+  language?: string;
+  body: string;
+  is_active?: boolean;
+  approved?: boolean;
+}
+
+export async function createTemplate(payload: TemplateCreatePayload): Promise<MessageTemplate> {
+  return apiFetch<MessageTemplate>("/messages/templates", { method: "POST", body: payload });
+}
+
+export interface TemplateUpdatePayload {
+  body?: string;
+  is_active?: boolean;
+  approved?: boolean;
+}
+
+export async function updateTemplate(
+  templateId: string,
+  payload: TemplateUpdatePayload,
+): Promise<MessageTemplate> {
+  return apiFetch<MessageTemplate>(`/messages/templates/${templateId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }

@@ -513,6 +513,32 @@ export interface DailyOperations {
   items: DailyActionItem[];
 }
 
+export interface OverviewMessage {
+  id: string;
+  patient_id: string | null;
+  patient_name: string | null;
+  direction: "inbound" | "outbound";
+  message_type: string;
+  text_body: string | null;
+  delivery_status: string | null;
+  occurred_at: string | null;
+}
+
+export interface MessagingOverview {
+  date_from: string;
+  date_to: string;
+  patients_in_scope: number;
+  messages_sent: number;
+  replies_received: number;
+  non_responders: number;
+  delivery_failures: number;
+  critical_alerts: number;
+  pending_observation_reviews: number;
+  ai_needs_clarification: number;
+  open_message_exceptions: number;
+  recent_messages: OverviewMessage[];
+}
+
 export interface AdherenceSummary {
   date_from: string;
   date_to: string;

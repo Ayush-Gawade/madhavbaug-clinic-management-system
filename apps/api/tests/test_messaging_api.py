@@ -11,6 +11,13 @@ import pytest
 from sqlalchemy import select, update
 
 from app.core.config import settings
+from app.models.messaging import (
+    DeliveryStatus,
+    MessageDirection,
+    MessageProcessingStatus,
+    MessageType,
+    WhatsAppMessage,
+)
 from app.models.scheduling import FollowUpInstance, FollowUpInstanceStatus
 from app.models.user import StaffRole
 from app.services import ai as ai_service
@@ -769,3 +776,77 @@ async def test_inside_window_uses_free_form_text(
     convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
     outbound = next(m for m in convo.json()["items"] if m["direction"] == "outbound")
     assert outbound["message_type"] == "text"
+
+
+async def test_clinic_wide_message_list_filters(
+    client, staff_factory, unique_email, session_factory
+) -> None:
+    """GET /messages lists WhatsApp traffic clinic-wide with transport filters."""
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+    patient_id = uuid.UUID(patient["id"])
+
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                WhatsAppMessage(
+                    patient_id=patient_id,
+                    direction=MessageDirection.OUTBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Breakfast check-in",
+                    delivery_status=DeliveryStatus.SENT,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    sent_at=now,
+                ),
+                WhatsAppMessage(
+                    patient_id=patient_id,
+                    direction=MessageDirection.INBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="I had poha and tea",
+                    delivery_status=None,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    received_at=now,
+                ),
+                WhatsAppMessage(
+                    patient_id=patient_id,
+                    direction=MessageDirection.OUTBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body="Broken number",
+                    delivery_status=DeliveryStatus.FAILED,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    sent_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+    all_messages = await client.get(f"{API}/messages", headers=headers, params={"size": 50})
+    assert all_messages.status_code == 200, all_messages.text
+    assert any(item["text_body"] == "I had poha and tea" for item in all_messages.json()["items"])
+
+    failed = await client.get(
+        f"{API}/messages",
+        headers=headers,
+        params={
+            "direction": "outbound",
+            "delivery_status": "failed",
+            "patient_id": patient["id"],
+            "size": 50,
+        },
+    )
+    assert failed.status_code == 200, failed.text
+    failed_items = failed.json()["items"]
+    assert len(failed_items) == 1
+    assert failed_items[0]["text_body"] == "Broken number"
+
+    inbound = await client.get(
+        f"{API}/messages", headers=headers, params={"direction": "inbound", "size": 50}
+    )
+    assert any(m["direction"] == "inbound" for m in inbound.json()["items"])
+
+    searched = await client.get(
+        f"{API}/messages", headers=headers, params={"search": "poha", "size": 50}
+    )
+    assert searched.json()["total"] >= 1

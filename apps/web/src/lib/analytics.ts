@@ -6,12 +6,30 @@ import type {
   ClinicOverview,
   DailyOperations,
   FinanceOverview,
+  MessagingOverview,
   ObservationTrend,
   TrendGranularity,
 } from "./types";
 
 export async function getClinicOverview(): Promise<ClinicOverview> {
   return apiFetch<ClinicOverview>("/analytics/overview");
+}
+
+export async function getMessagingOverview(params?: {
+  date_from?: string;
+  date_to?: string;
+  category?: string;
+  doctor_id?: string;
+  status?: string;
+}): Promise<MessagingOverview> {
+  const query = new URLSearchParams();
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
+  if (params?.category) query.set("category", params.category);
+  if (params?.doctor_id) query.set("doctor_id", params.doctor_id);
+  if (params?.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<MessagingOverview>(`/analytics/messaging${suffix}`);
 }
 
 export async function getDailyOperations(): Promise<DailyOperations> {

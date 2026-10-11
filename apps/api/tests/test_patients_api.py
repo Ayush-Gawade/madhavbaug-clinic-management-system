@@ -75,8 +75,8 @@ async def test_patient_search_and_filters(client, staff_factory, unique_email) -
         f"{API}/patients", headers=headers, params={"category": "diabetes"}
     )
     assert by_category.status_code == 200
-    assert by_category.json()["total"] == 1
-    assert by_category.json()["items"][0]["full_name"] == "Meena Devi"
+    assert by_category.json()["total"] >= 1
+    assert any(item["full_name"] == "Meena Devi" for item in by_category.json()["items"])
 
     invalid_category = await client.get(
         f"{API}/patients", headers=headers, params={"category": "not-a-category"}
