@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.pagination import PageParams
 from app.models.alerts import Alert, AlertPriority, AlertStatus, AlertType
 from app.models.clinical import Patient
@@ -211,6 +211,84 @@ async def send_follow_up_message(
         )
     )
     return result.ok
+
+
+async def send_manual_reply(
+    db: AsyncSession,
+    *,
+    patient: Patient,
+    body: str | None,
+    template: MessageTemplate | None,
+    instance_id: uuid.UUID | None = None,
+) -> WhatsAppMessage:
+    """Send a manual staff reply and persist the outbound message row.
+
+    Inside the Meta 24-hour session window (or when enforcement is disabled)
+    the free-form ``body`` is sent as text. Outside the window Meta requires an
+    approved, active template, so the caller must provide one; a missing body or
+    template raises ``ValidationError`` with code ``session_window_required`` so
+    the UI can prompt staff to switch to a template.
+    """
+    if not patient.phone_number:
+        raise ValidationError("This patient has no WhatsApp number on record.")
+
+    now = datetime.now(UTC)
+    context = template_context(patient)
+
+    if template is not None:
+        if not template.approved or not template.is_active:
+            raise ValidationError("Only approved, active templates can be sent.")
+        result = await whatsapp_client.send_template_message(
+            patient.phone_number,
+            template.name,
+            template.language,
+            whatsapp_client.build_template_parameters(template.body, context),
+        )
+        message_type = MessageType.TEMPLATE
+        message_body = whatsapp_client.render_template(template.body, context)
+        template_code = template.code
+    else:
+        if settings.whatsapp_enforce_session_window and not await _within_session_window(
+            db, patient.id
+        ):
+            raise ValidationError(
+                "Outside the 24-hour session window Meta does not allow free-form "
+                "messages. Send an approved template instead.",
+                code="session_window_required",
+            )
+        if not body or not body.strip():
+            raise ValidationError("A reply body is required.")
+        result = await whatsapp_client.send_text_message(patient.phone_number, body)
+        message_type = MessageType.TEXT
+        message_body = body
+        template_code = None
+
+    message = WhatsAppMessage(
+        patient_id=patient.id,
+        follow_up_instance_id=instance_id,
+        direction=MessageDirection.OUTBOUND,
+        provider_message_id=result.provider_message_id,
+        message_type=message_type,
+        to_phone=patient.phone_number,
+        text_body=message_body,
+        template_code=template_code,
+        delivery_status=DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED,
+        processing_status=MessageProcessingStatus.PROCESSED,
+        error_code=result.error_code,
+        error_message=result.error_message,
+        sent_at=now,
+    )
+    db.add(message)
+    await db.flush()
+    db.add(
+        MessageDeliveryEvent(
+            message_id=message.id,
+            status=message.delivery_status or DeliveryStatus.PENDING,
+            occurred_at=now,
+            payload={"dry_run": result.dry_run, "manual": True},
+        )
+    )
+    return message
 
 
 async def raise_delivery_failure(db: AsyncSession, instance: FollowUpInstance, reason: str) -> None:

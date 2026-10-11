@@ -37,6 +37,18 @@ export async function listMessages(params?: {
   return apiFetch<Page<WhatsAppMessage>>(`/messages${suffix}`);
 }
 
+export async function sendReply(payload: {
+  patient_id: string;
+  body?: string;
+  template_id?: string;
+  instance_id?: string;
+}): Promise<WhatsAppMessage> {
+  return apiFetch<WhatsAppMessage>("/messages/reply", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export async function listExceptions(params?: {
   status?: string;
   page?: number;

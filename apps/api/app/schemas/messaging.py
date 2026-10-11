@@ -74,6 +74,20 @@ class ExceptionResolve(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
+class ManualReplyCreate(BaseModel):
+    """A staff reply to a patient's WhatsApp message.
+
+    A free-form ``body`` is allowed inside the Meta 24-hour session window.
+    Outside the window a business-initiated message must be an approved
+    template, so callers must supply ``template_id`` instead.
+    """
+
+    patient_id: uuid.UUID
+    body: str | None = Field(default=None, max_length=4096)
+    template_id: uuid.UUID | None = None
+    instance_id: uuid.UUID | None = None
+
+
 class DispatchResult(BaseModel):
     sent: int
     failed: int

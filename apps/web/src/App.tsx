@@ -14,6 +14,7 @@ import { NotFoundPage } from "@/routes/NotFoundPage";
 import { PatientDetailPage } from "@/routes/PatientDetailPage";
 import { PatientsPage } from "@/routes/PatientsPage";
 import { QueuesPage } from "@/routes/QueuesPage";
+import { ReplyInboxPage } from "@/routes/ReplyInboxPage";
 import { WhatsAppOverviewPage } from "@/routes/WhatsAppOverviewPage";
 
 export default function App(): JSX.Element {
@@ -25,6 +26,7 @@ export default function App(): JSX.Element {
           <Route index element={<DashboardPage />} />
           <Route path="/whatsapp" element={<WhatsAppOverviewPage />} />
           <Route path="/queues" element={<QueuesPage />} />
+          <Route path="/inbox" element={<ReplyInboxPage />} />
           <Route path="/patients" element={<PatientsPage />} />
           <Route path="/patients/:patientId" element={<PatientDetailPage />} />
           <Route path="/finance" element={<FinancePage />} />

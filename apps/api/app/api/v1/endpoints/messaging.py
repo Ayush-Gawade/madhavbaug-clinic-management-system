@@ -11,8 +11,9 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import PlainTextResponse
 
 from app.api.deps import DbSession, Pagination, require_roles
-from app.core.errors import PermissionDeniedError, ValidationError
+from app.core.errors import NotFoundError, PermissionDeniedError, ValidationError
 from app.core.pagination import Page
+from app.models.clinical import Patient
 from app.models.messaging import (
     DeliveryStatus,
     ExceptionStatus,
@@ -22,12 +23,14 @@ from app.models.user import StaffRole, StaffUser
 from app.schemas.messaging import (
     DispatchResult,
     ExceptionResolve,
+    ManualReplyCreate,
     MessageExceptionRead,
     MessageRead,
     WebhookResult,
 )
 from app.services import audit as audit_service
 from app.services import messaging as messaging_service
+from app.services import schedules as schedules_service
 from app.services import whatsapp as whatsapp_client
 
 router = APIRouter(tags=["messaging"])
@@ -148,6 +151,44 @@ async def list_exceptions(
         page=pagination.page,
         size=pagination.size,
     )
+
+
+@router.post(
+    "/messages/reply",
+    response_model=MessageRead,
+    summary="Send a manual staff reply (free text inside the 24h window, template outside it)",
+)
+async def send_manual_reply(
+    payload: ManualReplyCreate,
+    db: DbSession,
+    actor: MessagingStaff,
+) -> MessageRead:
+    patient = await db.get(Patient, payload.patient_id)
+    if patient is None:
+        raise NotFoundError("Patient not found.")
+    template = None
+    if payload.template_id is not None:
+        template = await schedules_service.require_template(db, payload.template_id)
+    message = await messaging_service.send_manual_reply(
+        db,
+        patient=patient,
+        body=payload.body,
+        template=template,
+        instance_id=payload.instance_id,
+    )
+    await audit_service.record_event(
+        db,
+        actor_id=actor.id,
+        action="message.reply_sent",
+        entity_type="patient",
+        entity_id=patient.id,
+        change_summary={
+            "message_id": str(message.id),
+            "message_type": message.message_type,
+            "delivery_status": str(message.delivery_status),
+        },
+    )
+    return MessageRead.model_validate(message)
 
 
 @router.post(

@@ -850,3 +850,128 @@ async def test_clinic_wide_message_list_filters(
         f"{API}/messages", headers=headers, params={"search": "poha", "size": 50}
     )
     assert searched.json()["total"] >= 1
+
+
+async def test_manual_reply_within_session_window_sends_free_text(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """A free-form reply is allowed inside the 24h session window."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+
+    payload = _webhook_payload(
+        from_phone=patient["phone_number"],
+        message_id="wamid.SESSION1",
+        text="Hi, need an update",
+        timestamp=str(int(datetime.now(UTC).timestamp())),
+    )
+    inbound = await _post_webhook(client, payload)
+    assert inbound.status_code == 200, inbound.text
+    assert inbound.json()["messages"] == 1
+
+    response = await client.post(
+        f"{API}/messages/reply",
+        headers=headers,
+        json={"patient_id": patient["id"], "body": "Please drink a glass of water."},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["direction"] == "outbound"
+    assert body["message_type"] == "text"
+    assert body["text_body"] == "Please drink a glass of water."
+    assert body["delivery_status"] == "sent"
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    outbound = [m for m in convo.json()["items"] if m["direction"] == "outbound"]
+    assert any(m["text_body"] == "Please drink a glass of water." for m in outbound)
+    assert outbound[0]["follow_up_instance_id"] is None
+
+
+async def test_manual_reply_outside_window_blocks_free_text_and_prompts_template(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """Outside the window a free-form reply is blocked with a template prompt."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+
+    response = await client.post(
+        f"{API}/messages/reply",
+        headers=headers,
+        json={"patient_id": patient["id"], "body": "Free text outside the window"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "session_window_required"
+    assert "template" in response.json()["error"]["message"].lower()
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    assert not any(m["direction"] == "outbound" for m in convo.json()["items"])
+
+
+async def test_manual_reply_outside_window_sends_approved_template(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """Outside the window an explicit approved template is the compliant path."""
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    captured: dict = {}
+
+    async def _template(_to, name, language="en", body_parameters=None):
+        captured["name"] = name
+        captured["language"] = language
+        captured["params"] = body_parameters
+        return whatsapp_client.SendResult(ok=True, provider_message_id="tpl-reply-1", dry_run=True)
+
+    monkeypatch.setattr(whatsapp_client, "send_template_message", _template)
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+    template = await _create_template(client, headers, body="Hi {{name}}, time to check in.")
+
+    response = await client.post(
+        f"{API}/messages/reply",
+        headers=headers,
+        json={"patient_id": patient["id"], "template_id": template["id"]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["message_type"] == "template"
+    assert body["template_code"] == template["code"]
+    assert body["delivery_status"] == "sent"
+    assert captured["name"] == "daily_check_in"
+    assert captured["params"] == ["Messaging"]
+
+
+async def test_manual_reply_rejects_unapproved_template(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "whatsapp_enforce_session_window", True)
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+    template = await _create_template(client, headers, body="Hi {{name}}", approved=False)
+
+    response = await client.post(
+        f"{API}/messages/reply",
+        headers=headers,
+        json={"patient_id": patient["id"], "template_id": template["id"]},
+    )
+    assert response.status_code == 422, response.text
+    assert "approved" in response.json()["error"]["message"].lower()
+
+
+async def test_manual_reply_requires_body_without_template(
+    client, staff_factory, unique_email
+) -> None:
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+
+    response = await client.post(
+        f"{API}/messages/reply",
+        headers=headers,
+        json={"patient_id": patient["id"], "body": "   "},
+    )
+    assert response.status_code == 422, response.text

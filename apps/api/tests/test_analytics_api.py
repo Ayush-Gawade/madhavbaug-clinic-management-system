@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import func, select
 
 from app.models.messaging import (
     DeliveryStatus,
@@ -294,7 +295,11 @@ async def test_messaging_overview_counts_traffic_and_filters_by_category(
     await staff_factory(email=unique_email, role=StaffRole.OWNER)
     headers = _headers(await _login(client, unique_email))
 
-    today = datetime.now(UTC).date()
+    # Drive "today" from the database's own calendar: the message counts cast
+    # timestamps with func.date() in the DB session timezone, so using the
+    # Python UTC clock here would flake near local/in-DB midnight.
+    async with session_factory() as session:
+        today = (await session.execute(select(func.current_date()))).scalar_one()
     params = {"date_from": today.isoformat(), "date_to": today.isoformat()}
     baseline = (
         await client.get(f"{API}/analytics/messaging", headers=headers, params=params)
@@ -307,7 +312,7 @@ async def test_messaging_overview_counts_traffic_and_filters_by_category(
         )
     ).json()
 
-    older_day = (datetime.now(UTC) - timedelta(days=1)).date()
+    older_day = today - timedelta(days=1)
     older_params = {"date_from": older_day.isoformat(), "date_to": older_day.isoformat()}
     older_baseline = (
         await client.get(f"{API}/analytics/messaging", headers=headers, params=older_params)
