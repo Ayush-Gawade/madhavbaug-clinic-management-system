@@ -40,7 +40,7 @@ class PageParams(BaseModel):
 
 def page_params(
     page: Annotated[int, Query(ge=1, description="1-based page number")] = 1,
-    size: Annotated[int, Query(ge=1, le=100, description="Items per page (max 100)")] = 20,
+    size: Annotated[int, Query(ge=1, le=1000, description="Items per page (max 1000)")] = 20,
 ) -> PageParams:
     """FastAPI dependency for pagination query parameters."""
     return PageParams(page=page, size=size)
