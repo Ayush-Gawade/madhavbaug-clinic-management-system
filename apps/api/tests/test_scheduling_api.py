@@ -236,3 +236,31 @@ async def test_schedule_pause_stops_materialization(client, staff_factory, uniqu
     assert resumed.json()["status"] == "active"
     result2 = await client.post(f"{API}/schedules/{schedule['id']}/materialize", headers=headers)
     assert result2.json()["instances_created"] >= 1
+
+
+async def test_schedule_update_persists_message_template_id(
+    client, staff_factory, unique_email
+) -> None:
+    """PATCHing a UUID field (message_template_id) must commit, not roll back.
+
+    Regression: the audit change_summary is stored in JSONB; a raw pydantic
+    uuid.UUID in it crashed the commit and silently undid the update.
+    """
+    owner = unique_email
+    await staff_factory(email=owner, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, owner))
+    patient = await _register(client, headers)
+    template = await _create_template(client, headers)
+    schedule = await _create_schedule(client, headers, patient["id"])
+
+    updated = await client.patch(
+        f"{API}/schedules/{schedule['id']}",
+        headers=headers,
+        json={"message_template_id": template["id"]},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["message_template_id"] == template["id"]
+
+    fetched = await client.get(f"{API}/schedules/{schedule['id']}", headers=headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["message_template_id"] == template["id"]

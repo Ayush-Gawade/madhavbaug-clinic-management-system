@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import json
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditEvent
+
+
+def _jsonable_summary(change_summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Coerce changes (UUIDs, datetimes, enums) to JSON-safe primitives.
+
+    ``change_summary`` is stored in a JSONB column, so every value must survive
+    ``json.dumps``. A raw ``uuid.UUID`` from a pydantic ``model_dump()`` would
+    otherwise fail at commit and roll back the caller's whole transaction.
+    """
+    if change_summary is None:
+        return None
+    try:
+        return cast(dict[str, Any], json.loads(json.dumps(change_summary, default=str)))
+    except (TypeError, ValueError):
+        return {"serialization_error": str(change_summary)}
 
 
 async def record_event(
@@ -31,7 +47,7 @@ async def record_event(
         action=action,
         entity_type=entity_type,
         entity_id=str(entity_id) if entity_id is not None else None,
-        change_summary=change_summary,
+        change_summary=_jsonable_summary(change_summary),
         reason=reason,
         request_or_correlation_id=request_or_correlation_id,
     )
