@@ -53,6 +53,8 @@ _OPEN_INSTANCE_STATUSES = (
     FollowUpInstanceStatus.READ,
 )
 
+_DEFAULT_CHECK_IN_BODY = "It is time for your scheduled check-in. Please share your update."
+
 _DELIVERY_STATUS_MAP = {
     "sent": DeliveryStatus.SENT,
     "delivered": DeliveryStatus.DELIVERED,
@@ -373,7 +375,7 @@ async def dispatch_outbound(db: AsyncSession, *, limit: int = 100) -> dict[str, 
         body = (
             whatsapp_client.render_template(template.body, context)
             if template
-            else ("It is time for your scheduled check-in. Please share your update.")
+            else (schedule.message_body or _DEFAULT_CHECK_IN_BODY)
         )
 
         ok = await send_follow_up_message(

@@ -89,6 +89,7 @@ async def create_schedule(
         scheduled_local_time=data.scheduled_local_time,
         timezone=data.timezone,
         message_template_id=data.message_template_id,
+        message_body=data.message_body,
         response_deadline_hours=data.response_deadline_hours,
         reminder_policy=(data.reminder_policy.model_dump() if data.reminder_policy else None),
         escalation_policy=(data.escalation_policy.model_dump() if data.escalation_policy else None),

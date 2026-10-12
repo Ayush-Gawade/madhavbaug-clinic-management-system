@@ -124,6 +124,7 @@ class FollowUpSchedule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey("message_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_deadline_hours: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
     reminder_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     escalation_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

@@ -1,4 +1,4 @@
-/** Shared API types mirroring backend schemas. */
+﻿/** Shared API types mirroring backend schemas. */
 
 export type StaffRole = "owner" | "doctor" | "dietitian" | "reception" | "finance";
 
@@ -238,6 +238,7 @@ export interface FollowUpSchedule {
   scheduled_local_time: string | null;
   timezone: string;
   message_template_id: string | null;
+  message_body: string | null;
   response_deadline_hours: number;
   reminder_policy: Record<string, unknown> | null;
   escalation_policy: Record<string, unknown> | null;

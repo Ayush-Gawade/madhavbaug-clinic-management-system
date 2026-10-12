@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/2"
     celery_task_always_eager: bool = False
 
+    # -- Local dev scheduler ------------------------------------------------
+    # When Redis/Celery is unavailable (typical local Windows dev) a light
+    # in-process loop can drive the follow-up pipeline. It is ignored in
+    # production, where Celery Beat + workers own this work.
+    local_scheduler_enabled: bool = False
+    local_scheduler_interval_seconds: float = 30.0
+
     # -- Media --------------------------------------------------------------
     media_root: Path = Path("./data/media")
     media_signing_secret: str = Field(default=_DEFAULT_MEDIA_SIGNING_SECRET, min_length=16)

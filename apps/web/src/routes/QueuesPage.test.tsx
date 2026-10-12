@@ -78,6 +78,7 @@ const SCHEDULE: FollowUpSchedule = {
   scheduled_local_time: "08:00:00",
   timezone: "Asia/Kolkata",
   message_template_id: null,
+  message_body: null,
   response_deadline_hours: 12,
   reminder_policy: null,
   escalation_policy: null,

@@ -11,6 +11,7 @@ import {
   Loading,
   Modal,
   SelectInput,
+  TextArea,
   TextInput,
 } from "@/components/ui";
 import { ApiError } from "@/lib/api";
@@ -339,6 +340,7 @@ function ScheduleForm({ templates }: { templates: MessageTemplate[] | undefined 
   const [selected, setSelected] = useState<string[]>([]);
   const [followUpType, setFollowUpType] = useState<FollowUpType>("meal_check_in");
   const [templateId, setTemplateId] = useState("");
+  const [messageBody, setMessageBody] = useState("");
   const [freq, setFreq] = useState<"daily" | "weekly" | "monthly">("daily");
   const [interval, setInterval] = useState(1);
   const [weekdays, setWeekdays] = useState<number[]>([1]);
@@ -404,6 +406,7 @@ function ScheduleForm({ templates }: { templates: MessageTemplate[] | undefined 
           scheduled_local_time: time || null,
           timezone,
           message_template_id: templateId || null,
+          message_body: templateId ? null : messageBody || null,
           response_deadline_hours: deadline,
           status: "active",
           active_from: activeFrom || null,
@@ -568,6 +571,24 @@ function ScheduleForm({ templates }: { templates: MessageTemplate[] | undefined 
             </SelectInput>
           </div>
         </div>
+
+        {templateId === "" ? (
+          <div>
+            <Label htmlFor="schedule-body">Message text</Label>
+            <TextArea
+              id="schedule-body"
+              rows={3}
+              maxLength={4000}
+              placeholder="Type the message to send (e.g. Please share your today's meal photo.)"
+              value={messageBody}
+              onChange={(event) => setMessageBody(event.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Free-form text is only delivered by WhatsApp inside the 24-hour session window;
+              outside it an approved template is required.
+            </p>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <div>

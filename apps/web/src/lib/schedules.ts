@@ -19,6 +19,7 @@ export interface ScheduleCreatePayload {
   scheduled_local_time?: string | null;
   timezone?: string;
   message_template_id?: string | null;
+  message_body?: string | null;
   response_deadline_hours?: number;
   status?: ScheduleStatus;
   active_from?: string | null;

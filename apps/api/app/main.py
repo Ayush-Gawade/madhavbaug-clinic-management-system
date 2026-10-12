@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -35,9 +37,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         whatsapp_enabled=settings.whatsapp_enabled,
         ai_enabled=settings.ai_enabled,
     )
+
+    # Development machines without Redis cannot run the Celery beat pipeline,
+    # so an in-process loop drives scheduled dispatch instead (production
+    # always uses Celery).
+    scheduler_task: asyncio.Task[None] | None = None
+    if settings.local_scheduler_enabled and not settings.is_production:
+        from app.workers import local_scheduler
+
+        scheduler_task = asyncio.create_task(local_scheduler.scheduler_loop())
+
     try:
         yield
     finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
         logger.info("app_shutdown")
 
 

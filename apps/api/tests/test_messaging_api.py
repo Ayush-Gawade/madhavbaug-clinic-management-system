@@ -778,6 +778,41 @@ async def test_inside_window_uses_free_form_text(
     assert outbound["message_type"] == "text"
 
 
+async def test_free_form_schedule_body_is_sent(
+    client, staff_factory, unique_email, monkeypatch
+) -> None:
+    """A schedule's custom body is what dispatch sends when no template is set."""
+    text_calls: list[str] = []
+
+    async def _text(_to, body):
+        text_calls.append(body)
+        return whatsapp_client.SendResult(ok=True, provider_message_id="text-1", dry_run=True)
+
+    monkeypatch.setattr(whatsapp_client, "send_text_message", _text)
+
+    owner = unique_email
+    await staff_factory(email=owner, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, owner))
+    patient = await _register(client, headers)
+    schedule = await _queue_dispatchable_instance(
+        client, headers, patient["id"], message_body="Namaskar, please share your meal photo."
+    )
+
+    # The created schedule echoes the free-form body and no template.
+    assert schedule["message_body"] == "Namaskar, please share your meal photo."
+    assert schedule["message_template_id"] is None
+
+    dispatched = await client.post(f"{API}/messages/dispatch", headers=headers)
+    assert dispatched.status_code == 200, dispatched.text
+    assert dispatched.json()["sent"] >= 1
+    assert text_calls == ["Namaskar, please share your meal photo."]
+
+    convo = await client.get(f"{API}/patients/{patient['id']}/messages", headers=headers)
+    outbound = next(m for m in convo.json()["items"] if m["direction"] == "outbound")
+    assert outbound["message_type"] == "text"
+    assert outbound["text_body"] == "Namaskar, please share your meal photo."
+
+
 async def test_clinic_wide_message_list_filters(
     client, staff_factory, unique_email, session_factory
 ) -> None:

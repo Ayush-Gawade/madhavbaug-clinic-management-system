@@ -23,6 +23,12 @@ export function SelectInput(
   return <select {...props} className={`${inputClasses} ${props.className ?? ""}`} />;
 }
 
+export function TextArea(
+  props: React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+): JSX.Element {
+  return <textarea {...props} className={`${inputClasses} ${props.className ?? ""}`} />;
+}
+
 export function Button(
   props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" },
 ): JSX.Element {

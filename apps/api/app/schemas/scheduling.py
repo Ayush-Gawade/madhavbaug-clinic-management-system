@@ -62,6 +62,7 @@ class ScheduleCreate(BaseModel):
     active_from: date | None = None
     active_to: date | None = None
     responsible_staff_id: uuid.UUID | None = None
+    message_body: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
     def _validate_range(self) -> ScheduleCreate:
@@ -74,6 +75,7 @@ class ScheduleUpdate(BaseModel):
     status: ScheduleStatus | None = None
     scheduled_local_time: time | None = None
     message_template_id: uuid.UUID | None = None
+    message_body: str | None = Field(default=None, max_length=4000)
     response_deadline_hours: int | None = Field(default=None, ge=1, le=168)
     reminder_policy: ReminderPolicy | None = None
     escalation_policy: EscalationPolicy | None = None
@@ -93,6 +95,7 @@ class ScheduleRead(BaseModel):
     scheduled_local_time: time | None
     timezone: str
     message_template_id: uuid.UUID | None
+    message_body: str | None
     response_deadline_hours: int
     reminder_policy: dict[str, Any] | None
     escalation_policy: dict[str, Any] | None

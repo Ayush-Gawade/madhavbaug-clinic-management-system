@@ -76,6 +76,7 @@ const SCHEDULE: FollowUpSchedule = {
   scheduled_local_time: "08:00:00",
   timezone: "Asia/Kolkata",
   message_template_id: "template-1",
+  message_body: null,
   response_deadline_hours: 12,
   reminder_policy: null,
   escalation_policy: null,
@@ -144,6 +145,41 @@ describe("MessageSchedulerPage", () => {
       scheduled_local_time: "08:00",
       timezone: "Asia/Kolkata",
       message_template_id: TEMPLATE.id,
+      message_body: null,
+      response_deadline_hours: 12,
+      status: "active",
+      active_from: null,
+      active_to: null,
+    });
+  });
+
+  it("submits a custom free-form body when no template is chosen", async () => {
+    renderPage();
+
+    const checkbox = await screen.findByRole("checkbox", { name: "Asha Patil" });
+    fireEvent.click(checkbox);
+
+    // Reset the template select to the free-form option (no template).
+    fireEvent.change(screen.getByLabelText(/Message template/), {
+      target: { value: "" },
+    });
+    fireEvent.change(await screen.findByLabelText("Message text"), {
+      target: { value: "Namaskar Asha, please share your meal photo." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
+
+    await waitFor(() => {
+      expect(createScheduleMock).toHaveBeenCalledTimes(1);
+    });
+    expect(createScheduleMock).toHaveBeenCalledWith({
+      patient_id: PATIENT.id,
+      follow_up_type: "meal_check_in",
+      recurrence_rule: { freq: "daily", interval: 1 },
+      scheduled_local_time: "08:00",
+      timezone: "Asia/Kolkata",
+      message_template_id: null,
+      message_body: "Namaskar Asha, please share your meal photo.",
       response_deadline_hours: 12,
       status: "active",
       active_from: null,
