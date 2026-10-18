@@ -39,6 +39,9 @@ celerybeat-schedule*
 .DS_Store
 Thumbs.db
 .idea/
+
+# Local agent harness config (machine-specific, not project source)
+opencode.json
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json

@@ -18,6 +18,29 @@ from app.db.session import get_sessionmaker
 from app.models.messaging import WhatsAppMessage
 from app.workers.celery_app import celery_app
 
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    """Return a process-wide event loop shared by every task.
+
+    ``asyncio.run`` would build and close a loop per task. The lazily created
+    SQLAlchemy engine and the cached async Redis client keep pooled connections
+    bound to the loop that opened them, so a later task running on a fresh loop
+    would touch dead transports::
+
+        AttributeError: 'NoneType' object has no attribute 'send'
+        RuntimeError: Event loop is closed
+
+    Reusing a single loop per worker process keeps those pools valid. The
+    process is still recycled periodically via ``worker_max_tasks_per_child``.
+    """
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
 
 def _run(task: Callable[[AsyncSession], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
     """Run an async service callable inside a fresh transactional session."""
@@ -33,7 +56,7 @@ def _run(task: Callable[[AsyncSession], Awaitable[dict[str, Any]]]) -> dict[str,
                 await session.rollback()
                 raise
 
-    return asyncio.run(_runner())
+    return _get_loop().run_until_complete(_runner())
 
 
 @celery_app.task(name="app.workers.tasks.healthcheck")  # type: ignore[untyped-decorator]
