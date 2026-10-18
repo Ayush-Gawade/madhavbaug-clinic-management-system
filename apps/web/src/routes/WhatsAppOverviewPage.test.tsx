@@ -40,6 +40,8 @@ const OVERVIEW: MessagingOverview = {
       direction: "inbound",
       message_type: "text",
       text_body: "My sugar is 130",
+      media_mime_type: null,
+      media_url: null,
       delivery_status: null,
       occurred_at: "2026-10-11T09:00:00Z",
     },
@@ -50,8 +52,22 @@ const OVERVIEW: MessagingOverview = {
       direction: "outbound",
       message_type: "text",
       text_body: "Morning check-in",
+      media_mime_type: null,
+      media_url: null,
       delivery_status: "failed",
       occurred_at: "2026-10-11T08:00:00Z",
+    },
+    {
+      id: "message-3",
+      patient_id: "patient-1",
+      patient_name: "Asha Patil",
+      direction: "inbound",
+      message_type: "image",
+      text_body: null,
+      media_mime_type: "image/jpeg",
+      media_url: "/api/v1/media/message-3?token=test",
+      delivery_status: null,
+      occurred_at: "2026-10-11T07:30:00Z",
     },
   ],
 };
@@ -101,6 +117,8 @@ describe("WhatsAppOverviewPage", () => {
     expect(screen.getByText("Morning check-in")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
     expect(screen.getByText("Message exceptions")).toBeInTheDocument();
+    // The inbound image row renders a thumbnail from its signed media URL.
+    expect(screen.getByAltText("Patient attachment")).toBeInTheDocument();
   });
 
   it("refetches with the category filter when it changes", async () => {

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
+import { MediaAttachment } from "@/components/MediaAttachment";
 import {
   Badge,
   Button,
@@ -105,7 +106,14 @@ function ThreadModal({
                       {message.template_code}
                     </p>
                   ) : null}
-                  <p>{message.text_body ?? (message.media_mime_type ? `Sent a ${message.media_mime_type}` : "Message")}</p>
+                  {message.text_body ? <p>{message.text_body}</p> : null}
+                  {!message.text_body && !message.media_url ? (
+                    <p>{message.media_mime_type ? `Sent a ${message.media_mime_type}` : "Message"}</p>
+                  ) : null}
+                  <MediaAttachment
+                    mediaUrl={message.media_url}
+                    mediaMimeType={message.media_mime_type}
+                  />
                   <p
                     className={`mt-1 text-[11px] ${
                       message.direction === "outbound" ? "text-white/70" : "text-slate-400"
@@ -222,13 +230,20 @@ export function ReplyInboxPage(): JSX.Element {
             {rows.map((message) => (
               <li key={message.id}>
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-800">
-                      {nameMap.get(message.patient_id ?? "") ?? message.patient_id?.slice(0, 8)}
-                    </p>
-                    <p className="truncate text-sm text-slate-600">
-                      {message.text_body ?? (message.media_mime_type ? `Sent a ${message.media_mime_type}` : "Message")}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <MediaAttachment
+                      mediaUrl={message.media_url}
+                      mediaMimeType={message.media_mime_type}
+                      compact
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {nameMap.get(message.patient_id ?? "") ?? message.patient_id?.slice(0, 8)}
+                      </p>
+                      <p className="truncate text-sm text-slate-600">
+                        {message.text_body ?? (message.media_mime_type ? `Sent a ${message.media_mime_type}` : "Message")}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="text-xs text-slate-400">{timeLabel(message.created_at)}</span>

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { MediaAttachment } from "@/components/MediaAttachment";
 import { Badge, Card, EmptyState, ErrorNotice, Loading } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { listPatientMessages } from "@/lib/messaging";
@@ -27,31 +28,6 @@ function messageLabel(message: WhatsAppMessage): string {
   return "[No content]";
 }
 
-function MediaAttachment({ message }: { message: WhatsAppMessage }): JSX.Element | null {
-  if (!message.media_url) return null;
-  if (message.media_mime_type?.startsWith("image/")) {
-    return (
-      <a href={message.media_url} target="_blank" rel="noreferrer" className="mt-2 block">
-        <img
-          src={message.media_url}
-          alt="Patient attachment"
-          className="max-h-64 rounded-md border border-slate-200"
-        />
-      </a>
-    );
-  }
-  return (
-    <a
-      href={message.media_url}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-2 inline-block text-xs font-medium text-brand-700 underline"
-    >
-      Download attachment
-    </a>
-  );
-}
-
 function MessageBubble({ message }: { message: WhatsAppMessage }): JSX.Element {
   const inbound = message.direction === "inbound";
   return (
@@ -62,7 +38,7 @@ function MessageBubble({ message }: { message: WhatsAppMessage }): JSX.Element {
         }`}
       >
         <p className="whitespace-pre-wrap break-words">{messageLabel(message)}</p>
-        <MediaAttachment message={message} />
+        <MediaAttachment mediaUrl={message.media_url} mediaMimeType={message.media_mime_type} />
         <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
           <span>{formatDate(message.received_at ?? message.sent_at ?? message.created_at)}</span>
           {message.message_type !== "text" ? (

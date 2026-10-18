@@ -325,6 +325,7 @@ async def messaging_overview(
             direction=message.direction,
             message_type=message.message_type,
             text_body=message.text_body,
+            media_mime_type=message.media_mime_type,
             delivery_status=message.delivery_status,
             occurred_at=message.sent_at or message.received_at or message.created_at,
         )

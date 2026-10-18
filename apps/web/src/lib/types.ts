@@ -521,6 +521,8 @@ export interface OverviewMessage {
   direction: "inbound" | "outbound";
   message_type: string;
   text_body: string | null;
+  media_mime_type: string | null;
+  media_url: string | null;
   delivery_status: string | null;
   occurred_at: string | null;
 }

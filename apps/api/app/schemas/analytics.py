@@ -6,11 +6,12 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from app.models.alerts import AlertPriority
 from app.models.clinical import PatientCategoryType
 from app.models.messaging import DeliveryStatus, MessageDirection, MessageType
+from app.services import media as media_service
 
 
 class CategoryCount(BaseModel):
@@ -27,8 +28,17 @@ class OverviewMessage(BaseModel):
     direction: MessageDirection
     message_type: MessageType
     text_body: str | None
+    media_mime_type: str | None = None
     delivery_status: DeliveryStatus | None
     occurred_at: datetime | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def media_url(self) -> str | None:
+        """A signed, expiring URL when this message carries stored media."""
+        if not self.media_mime_type:
+            return None
+        return media_service.media_url(self.id)
 
 
 class MessagingOverview(BaseModel):

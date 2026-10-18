@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { MediaAttachment } from "@/components/MediaAttachment";
 import {
   Badge,
   Card,
@@ -92,7 +93,14 @@ function RecentMessages({ messages }: { messages: OverviewMessage[] }): JSX.Elem
             </td>
             <td className="px-4 py-3 text-slate-600">{typeLabel(message.message_type)}</td>
             <td className="max-w-72 px-4 py-3 text-slate-700">
-              {message.text_body ?? "—"}
+              <div className="flex items-center gap-3">
+                <MediaAttachment
+                  mediaUrl={message.media_url}
+                  mediaMimeType={message.media_mime_type}
+                  compact
+                />
+                <span className="truncate">{message.text_body ?? "—"}</span>
+              </div>
             </td>
             <td className="px-4 py-3">
               {message.delivery_status ? (
