@@ -392,12 +392,67 @@ implemented (backend suite now 180 tests; web suite 15):
   dry-run defaults so a developer's live Meta credentials in `.env` can never
   trigger real network sends or change the webhook verify token during tests.
 
+## WhatsApp: media + vision made real (Phase D)
+
+Phase C stored media and called the AI path "vision", but two defects meant
+inbound photos were never actually analysed: every async Celery task was
+silently failing, and the analysis path re-downloaded media from Meta (or, when
+that failed, captioned the message and recorded a `vision` success without
+reading the image). Phase D fixes both and is the state frozen for evaluation
+(backend suite now **199** tests; web **28**).
+
+- **D1 worker event loop** (`workers/tasks.py`): each task called
+  `asyncio.run()`, building and tearing down a fresh loop per task. The lazily
+  created SQLAlchemy engine and cached async Redis client keep pooled
+  connections bound to the loop that opened them, so a later task ran on a dead
+  loop and failed (`NoneType…send`, `Event loop is closed`). Every async task
+  was affected — which is why inbound media was never downloaded. Now one
+  process-wide loop is shared by all tasks.
+- **D2 OpenRouter-compatible gateway** (`core/config.py`, `services/ai.py`):
+  `openai_base_url` makes the client target any OpenAI-compatible host; without
+  it always hit `api.openai.com` and 401'd against a non-OpenAI key.
+- **D3 vision reads stored media** (`services/ai.py`): analysis reads the file
+  the media worker already persisted under `MEDIA_ROOT`, falling back to a
+  provider download. Reuses bytes already paid for and survives provider
+  media-expiry.
+- **D4 fail loudly** (`services/ai.py`): with no image bytes the call raises and
+  the message is marked `FAILED`, instead of silently captioning the text and
+  recording a false `vision` success. Provider and media failures are now
+  visible in the queue rather than hidden.
+- **D5 prompt v2** (`services/ai.py`): the prompt never listed the observation
+  vocabulary the validator accepts, so the model invented type names (`sugar`,
+  `bp`) which were then rejected as unsupported and the reading dropped. The
+  prompt now enumerates the canonical types and units, common aliases are
+  folded by `_normalize_observation_type`, and `PROMPT_VERSION` is
+  `extraction-v2`.
+- **D6 AI test isolation** (`tests/conftest.py`): the suite pins AI off and
+  inline, so a developer's live provider key in `.env` can never be spent or
+  slow the suite down.
+- **D7 media rendered everywhere** (`web/src/components/MediaAttachment.tsx`,
+  `schemas/analytics.py`, `services/analytics.py`): one shared signed-URL
+  component with thumbnail/full modes, a download link for non-images, and a
+  quiet `Media unavailable` fallback, used by the patient conversation, the
+  replies inbox and thread, and a new compact thumbnail on the WhatsApp
+  overview. `OverviewMessage` gained `media_mime_type` and a computed
+  `media_url`.
+- **D8 single scheduler**: `LOCAL_SCHEDULER_ENABLED=false` retires the
+  in-process scheduler so Celery Beat is the only one, removing a duplicate-run
+  risk in production.
+
+## Evaluation and freeze
+
+Phase D was followed by a deliberate stop-and-evaluate before further feature
+work. Findings, evidence and the ops root cause for the earlier silent stack
+deaths are written up in **[EVALUATION.md](./EVALUATION.md)**. The frozen state
+is tagged `freeze/whatsapp-2026-10-18` and pushed to the project remote.
+
 ## Remaining increments (planned)
 
-All planned increments (1–11) are complete, and the Phase C WhatsApp gaps above
+All planned increments (1–11) are complete, and the Phase C and D gaps above
 are closed. Further work is driven by the PRD's open questions (approved
 thresholds, live WhatsApp/AI enablement, financial inputs, media retention
 policy) and by operational feedback once the clinic goes live. Known
-non-blocking follow-ups: outbound retry/backoff for transient provider errors,
-and interactive/outbound media composition.
+non-blocking follow-ups are tracked in [EVALUATION.md](./EVALUATION.md) §8 —
+outbound retry/backoff for transient provider errors, interactive/outbound
+media composition, and the documented coverage gaps.
 
