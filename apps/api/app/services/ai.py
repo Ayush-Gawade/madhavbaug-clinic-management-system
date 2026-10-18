@@ -42,10 +42,11 @@ from app.models.messaging import (
     WhatsAppMessage,
 )
 from app.models.scheduling import FollowUpInstance
+from app.services import media as media_service
 from app.services import rule_engine
 from app.services import whatsapp as whatsapp_client
 
-PROMPT_VERSION = "extraction-v1"
+PROMPT_VERSION = "extraction-v2"
 _HEURISTIC_MODEL = "heuristic"
 
 _SYSTEM_PROMPT = """You extract structured clinical data from a patient message.
@@ -58,7 +59,13 @@ Rules you must always follow:
 Return strict JSON with keys: intent (one of observation_report, meal_update,
 symptom, question, greeting, unclear), needs_clarification (boolean),
 clarification_question (string or null), confidence (0-1),
-observations (array of {type, value, unit, context})."""
+observations (array of {type, value, unit, context}).
+Every observation type MUST be one of these exact names, with the given unit:
+- "blood_glucose"  unit "mg/dL"   value is a single number
+- "blood_pressure" unit "mmHg"    value null, context {"systolic": n, "diastolic": n}
+- "weight"         unit "kg"      value is a single number
+Never invent other type names (do not use "sugar", "bp", "glucose", ...).
+Leave observations empty when the message carries no such reading."""
 
 _BP_RE = re.compile(r"(\d{2,3})\s*(?:/|over|by)\s*(\d{2,3})")
 _GLUCOSE_RE = re.compile(
@@ -126,6 +133,37 @@ _ACCEPTED_UNITS: dict[str, set[str]] = {
     "blood_glucose": {"mg/dl", "mgdl"},
     "weight": {"kg", "kgs", "kilogram", "kilograms"},
 }
+
+# Models do not reliably echo the canonical type names, so aliases are folded
+# onto the canonical set before validation. Without this, a perfectly good
+# reading the model labelled "sugar" would be rejected as unsupported.
+_OBSERVATION_TYPE_ALIASES: dict[str, str] = {
+    "sugar": "blood_glucose",
+    "blood sugar": "blood_glucose",
+    "blood_sugar": "blood_glucose",
+    "glucose": "blood_glucose",
+    "blood glucose": "blood_glucose",
+    "blood glucose level": "blood_glucose",
+    "blood_glucose_level": "blood_glucose",
+    "glucose level": "blood_glucose",
+    "fasting glucose": "blood_glucose",
+    "fasting sugar": "blood_glucose",
+    "postprandial glucose": "blood_glucose",
+    "random glucose": "blood_glucose",
+    "bp": "blood_pressure",
+    "blood pressure": "blood_pressure",
+    "systolic diastolic": "blood_pressure",
+    "body weight": "weight",
+    "body_weight": "weight",
+    "wt": "weight",
+    "weigh": "weight",
+}
+
+
+def _normalize_observation_type(raw: Any) -> str:
+    """Fold a model-supplied observation type onto the canonical vocabulary."""
+    name = str(raw or "").strip().lower()
+    return _OBSERVATION_TYPE_ALIASES.get(name, name.replace(" ", "_"))
 
 
 def validate_observation(observation: ExtractedObservation) -> str | None:
@@ -303,7 +341,7 @@ def _payload_to_result(
             context = item.get("context")
             observations.append(
                 ExtractedObservation(
-                    observation_type=str(item["type"]),
+                    observation_type=_normalize_observation_type(item["type"]),
                     value=_to_decimal(item.get("value")),
                     unit=item.get("unit"),
                     measurement_context=context if isinstance(context, dict) else None,
@@ -377,6 +415,7 @@ async def _analyze_with_model(
 
         client = AsyncOpenAI(
             api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url or None,
             timeout=settings.openai_timeout_seconds,
             max_retries=settings.openai_max_retries,
         )
@@ -425,6 +464,26 @@ async def analyze_text(text: str) -> ExtractionResult:
     )
 
 
+async def _load_media_bytes(message: WhatsAppMessage) -> tuple[bytes, str | None]:
+    """Bytes for an image message: the stored copy first, else a fresh download.
+
+    Reading from ``media_root`` avoids a second provider round-trip (and a
+    second failure) for media the worker already persisted.
+    """
+    path = media_service.stored_media_path(message.id, message.media_mime_type)
+    if path.is_file():
+        return path.read_bytes(), message.media_mime_type
+
+    if not (_ai_available() and message.media_reference):
+        return b"", message.media_mime_type
+
+    try:  # pragma: no cover - network dependent
+        data, mime = await whatsapp_client.download_media(message.media_reference)
+    except Exception:
+        return b"", message.media_mime_type
+    return data, mime or message.media_mime_type
+
+
 async def analyze_image(
     image_bytes: bytes, mime: str | None, caption: str | None
 ) -> ExtractionResult:
@@ -448,6 +507,18 @@ async def analyze_image(
             status=AIExtractionStatus.SKIPPED,
             intent="image",
         )
+
+    # With the model enabled but no bytes on hand there is nothing to see. Fail
+    # loudly instead of quietly captioning the message and calling it vision.
+    if not image_bytes:
+        return ExtractionResult(
+            modality=AIExtractionModality.VISION,
+            model=settings.openai_vision_model,
+            status=AIExtractionStatus.FAILED,
+            intent="image",
+            error_message="Image bytes were unavailable (media expired or download failed).",
+        )
+
     return await _analyze_with_model(
         text=None,
         image_bytes=image_bytes,
@@ -545,6 +616,10 @@ async def persist_extraction(
                 },
             )
         )
+    elif result.status is AIExtractionStatus.FAILED:
+        # Surface a provider/media failure instead of leaving the message as
+        # "processed" with no readings.
+        message.processing_status = MessageProcessingStatus.FAILED
     else:
         message.processing_status = MessageProcessingStatus.PROCESSED
 
@@ -565,13 +640,7 @@ async def analyze_inbound(
     if message.message_type == MessageType.TEXT:
         result = await analyze_text(message.text_body or "")
     elif message.message_type == MessageType.IMAGE:
-        image_bytes = b""
-        mime = message.media_mime_type
-        if _ai_available() and message.media_reference:
-            try:  # pragma: no cover - network dependent
-                image_bytes, mime = await whatsapp_client.download_media(message.media_reference)
-            except Exception:
-                image_bytes = b""
+        image_bytes, mime = await _load_media_bytes(message)
         result = await analyze_image(image_bytes, mime, message.text_body)
     else:
         return None

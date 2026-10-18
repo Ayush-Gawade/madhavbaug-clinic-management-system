@@ -82,6 +82,9 @@ class Settings(BaseSettings):
 
     # -- OpenAI -------------------------------------------------------------
     openai_api_key: str = ""
+    # Point the client at any OpenAI-compatible gateway (e.g. OpenRouter,
+    # Together, a local vLLM). Empty uses api.openai.com.
+    openai_base_url: str | None = None
     openai_text_model: str = "gpt-4o"
     openai_vision_model: str = "gpt-4o"
     openai_timeout_seconds: float = 45.0

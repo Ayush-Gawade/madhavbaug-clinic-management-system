@@ -105,6 +105,20 @@ def _whatsapp_dry_run_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "whatsapp_enforce_session_window", False)
 
 
+@pytest.fixture(autouse=True)
+def _ai_offline_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin AI to the deterministic, synchronous offline path for every test.
+
+    A developer's local ``.env`` may hold a live provider key, enable the
+    integration and defer analysis to Celery. Tests must never spend real tokens,
+    depend on a model, or require a running worker, so extraction runs offline and
+    inline unless a test explicitly opts back in.
+    """
+    monkeypatch.setattr(settings, "ai_enabled", False)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "ai_processing_mode", "inline")
+
+
 async def create_staff(
     session_factory: async_sessionmaker[AsyncSession],
     *,
