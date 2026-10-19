@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select, update
@@ -885,6 +885,44 @@ async def test_clinic_wide_message_list_filters(
         f"{API}/messages", headers=headers, params={"search": "poha", "size": 50}
     )
     assert searched.json()["total"] >= 1
+
+
+async def test_inbox_threads_group_inbound_messages_by_patient(
+    client, staff_factory, unique_email, session_factory
+) -> None:
+    """GET /messages/inbox returns one row per patient, not one per message."""
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+    patient = await _register(client, headers)
+    patient_id = uuid.UUID(patient["id"])
+
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                WhatsAppMessage(
+                    patient_id=patient_id,
+                    direction=MessageDirection.INBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body=f"Reply {index}",
+                    delivery_status=None,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    received_at=now + timedelta(minutes=index),
+                )
+                for index in range(3)
+            ]
+        )
+        await session.commit()
+
+    response = await client.get(f"{API}/messages/inbox", headers=headers, params={"size": 50})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    rows = [item for item in body["items"] if item["patient_id"] == patient["id"]]
+    assert len(rows) == 1, body
+    assert rows[0]["inbound_count"] == 3
+    assert rows[0]["patient_name"] == patient["full_name"]
+    # The preview is the most recent inbound message for the thread.
+    assert rows[0]["latest_text_body"] == "Reply 2"
 
 
 async def test_manual_reply_within_session_window_sends_free_text(

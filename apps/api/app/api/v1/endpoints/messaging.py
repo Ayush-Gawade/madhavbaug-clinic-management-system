@@ -23,6 +23,7 @@ from app.models.user import StaffRole, StaffUser
 from app.schemas.messaging import (
     DispatchResult,
     ExceptionResolve,
+    InboxThread,
     ManualReplyCreate,
     MessageExceptionRead,
     MessageRead,
@@ -129,6 +130,23 @@ async def list_all_messages(
     )
     return Page[MessageRead].create(
         [MessageRead.model_validate(m) for m in messages],
+        total=total,
+        page=pagination.page,
+        size=pagination.size,
+    )
+
+
+@router.get(
+    "/messages/inbox",
+    response_model=Page[InboxThread],
+    summary="Replies inbox: one thread per patient with inbound activity",
+)
+async def list_inbox_threads(
+    db: DbSession, actor: MessagingStaff, pagination: Pagination
+) -> Page[InboxThread]:
+    threads, total = await messaging_service.list_inbox_threads(db, pagination)
+    return Page[InboxThread].create(
+        [InboxThread.model_validate(thread) for thread in threads],
         total=total,
         page=pagination.page,
         size=pagination.size,

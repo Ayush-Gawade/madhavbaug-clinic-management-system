@@ -641,6 +641,85 @@ async def list_messages(
     return rows, total
 
 
+async def list_inbox_threads(
+    db: AsyncSession, pagination: PageParams
+) -> tuple[list[dict[str, Any]], int]:
+    """One row per patient with inbound activity, newest conversation first.
+
+    The replies inbox groups inbound messages by patient so a patient who writes
+    several times appears once, with the number of inbound messages alongside.
+    """
+    occurred = func.coalesce(WhatsAppMessage.received_at, WhatsAppMessage.created_at)
+    filters = [
+        WhatsAppMessage.direction == MessageDirection.INBOUND,
+        WhatsAppMessage.patient_id.is_not(None),
+    ]
+
+    threads = (
+        select(
+            WhatsAppMessage.patient_id.label("patient_id"),
+            func.max(occurred).label("latest_at"),
+            func.count().label("inbound_count"),
+        )
+        .where(*filters)
+        .group_by(WhatsAppMessage.patient_id)
+        .subquery()
+    )
+    total = int((await db.execute(select(func.count()).select_from(threads))).scalar_one())
+
+    page_rows = (
+        await db.execute(
+            select(threads.c.patient_id, threads.c.latest_at, threads.c.inbound_count)
+            .order_by(threads.c.latest_at.desc())
+            .offset(pagination.offset)
+            .limit(pagination.limit)
+        )
+    ).all()
+    if not page_rows:
+        return [], total
+
+    patient_ids = [row.patient_id for row in page_rows]
+    names = dict(
+        (
+            await db.execute(
+                select(Patient.id, Patient.full_name).where(Patient.id.in_(patient_ids))
+            )
+        ).all()
+    )
+
+    latest_stmt = (
+        select(WhatsAppMessage)
+        .join(
+            threads,
+            (WhatsAppMessage.patient_id == threads.c.patient_id)
+            & (occurred == threads.c.latest_at),
+        )
+        .where(*filters, WhatsAppMessage.patient_id.in_(patient_ids))
+        .order_by(occurred.desc())
+    )
+    latest_by_patient: dict[uuid.UUID, WhatsAppMessage] = {}
+    for candidate in (await db.execute(latest_stmt)).scalars().all():
+        if candidate.patient_id is not None:
+            latest_by_patient.setdefault(candidate.patient_id, candidate)
+
+    threads_out: list[dict[str, Any]] = []
+    for row in page_rows:
+        latest = latest_by_patient.get(row.patient_id)
+        threads_out.append(
+            {
+                "patient_id": row.patient_id,
+                "patient_name": names.get(row.patient_id),
+                "latest_message_id": latest.id if latest else None,
+                "latest_direction": latest.direction if latest else None,
+                "latest_text_body": latest.text_body if latest else None,
+                "latest_media_mime_type": latest.media_mime_type if latest else None,
+                "latest_at": row.latest_at,
+                "inbound_count": int(row.inbound_count),
+            }
+        )
+    return threads_out, total
+
+
 async def list_exceptions(
     db: AsyncSession, *, status: ExceptionStatus | None, pagination: PageParams
 ) -> tuple[list[MessageException], int]:

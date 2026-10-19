@@ -53,6 +53,19 @@ class MessageRead(BaseModel):
         return media_service.media_url(self.id)
 
 
+class InboxThread(BaseModel):
+    """One patient conversation in the replies inbox (grouped by patient)."""
+
+    patient_id: uuid.UUID
+    patient_name: str | None
+    latest_message_id: uuid.UUID | None
+    latest_direction: MessageDirection | None
+    latest_text_body: str | None
+    latest_media_mime_type: str | None
+    latest_at: datetime | None
+    inbound_count: int
+
+
 class MessageExceptionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
