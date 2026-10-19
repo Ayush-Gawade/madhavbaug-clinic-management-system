@@ -5,8 +5,13 @@ import { BrowserRouter } from "react-router-dom";
 
 import App from "@/App";
 import { AuthProvider } from "@/lib/auth";
+import { initTheme } from "@/lib/theme";
 
+import "@fontsource-variable/plus-jakarta-sans";
+import "@fontsource-variable/noto-sans-devanagari";
 import "@/index.css";
+
+initTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {
