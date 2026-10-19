@@ -15,6 +15,7 @@ import { PatientDetailPage } from "@/routes/PatientDetailPage";
 import { PatientsPage } from "@/routes/PatientsPage";
 import { QueuesPage } from "@/routes/QueuesPage";
 import { ReplyInboxPage } from "@/routes/ReplyInboxPage";
+import { SettingsPage } from "@/routes/SettingsPage";
 import { WhatsAppOverviewPage } from "@/routes/WhatsAppOverviewPage";
 
 export default function App(): JSX.Element {
@@ -35,6 +36,7 @@ export default function App(): JSX.Element {
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/message-exceptions" element={<MessageExceptionsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />

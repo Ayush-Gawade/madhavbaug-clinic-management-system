@@ -14,6 +14,7 @@ import {
   MessageCircle,
   MessageSquareWarning,
   Moon,
+  Settings,
   Sun,
   TriangleAlert,
   Users,
@@ -69,6 +70,10 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "Finance",
     items: [{ to: "/finance", label: "Treatments & costs", icon: Wallet }],
+  },
+  {
+    label: "Clinic",
+    items: [{ to: "/settings", label: "Settings", icon: Settings }],
   },
 ];
 

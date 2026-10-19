@@ -619,3 +619,20 @@ export interface FinanceOverview {
   lines: FinanceTreatmentLine[];
   notes: string[];
 }
+
+export type SettingType = "boolean" | "string";
+
+/** A clinic-tunable switch as served by `GET /api/v1/settings`. */
+export interface AppSetting {
+  key: string;
+  value: boolean | string;
+  default: boolean | string;
+  description: string;
+  type: SettingType;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface SettingsResponse {
+  settings: AppSetting[];
+}
