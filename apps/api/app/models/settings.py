@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -30,7 +30,9 @@ class AppSetting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     value: Mapped[Any] = mapped_column(JSONB, nullable=False)
-    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Registry prose, not a label. ``TEXT``: settings descriptions are written
+    #: in code and a 255-character ceiling turns documentation into a bug.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("staff_users.id", ondelete="SET NULL"),
