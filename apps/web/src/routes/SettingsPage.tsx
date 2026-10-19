@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BotMessageSquare, Phone } from "lucide-react";
+import { BotMessageSquare, MessageSquareText, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -18,13 +18,17 @@ import { ApiError } from "@/lib/api";
 import {
   AUTO_REPLY_ENABLED_KEY,
   DOCTOR_PHONE_KEY,
+  DOCTOR_TEMPLATE_KEY,
   isValidPhone,
+  isValidTemplateName,
   listSettings,
   updateSetting,
 } from "@/lib/settings";
 import type { AppSetting } from "@/lib/types";
 
 const PHONE_HINT = "Enter the doctor's number in international format, e.g. +919359883349.";
+const TEMPLATE_HINT =
+  "Use the template's Meta name: lowercase letters, digits and underscores only, or leave it empty.";
 
 function messageOf(error: unknown): string {
   return error instanceof ApiError ? error.message : "Saving settings failed.";
@@ -69,13 +73,16 @@ export function SettingsPage(): JSX.Element {
 
   const [enabled, setEnabled] = useState(false);
   const [doctorPhone, setDoctorPhone] = useState("");
+  const [doctorTemplate, setDoctorTemplate] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (hydrated || !settings.data) return;
     setEnabled(fieldOf(settings.data, AUTO_REPLY_ENABLED_KEY)?.value === true);
     setDoctorPhone(String(fieldOf(settings.data, DOCTOR_PHONE_KEY)?.value ?? ""));
+    setDoctorTemplate(String(fieldOf(settings.data, DOCTOR_TEMPLATE_KEY)?.value ?? ""));
     setHydrated(true);
   }, [settings.data, hydrated]);
 
@@ -83,6 +90,7 @@ export function SettingsPage(): JSX.Element {
     mutationFn: async () => {
       await updateSetting(AUTO_REPLY_ENABLED_KEY, enabled);
       await updateSetting(DOCTOR_PHONE_KEY, doctorPhone.trim());
+      await updateSetting(DOCTOR_TEMPLATE_KEY, doctorTemplate.trim());
     },
     onSuccess: () => {
       toast.success("Settings saved");
@@ -96,11 +104,17 @@ export function SettingsPage(): JSX.Element {
       return;
     }
     setPhoneError(null);
+    if (!isValidTemplateName(doctorTemplate)) {
+      setTemplateError(TEMPLATE_HINT);
+      return;
+    }
+    setTemplateError(null);
     save.mutate();
   };
 
   const enabledSetting = fieldOf(settings.data, AUTO_REPLY_ENABLED_KEY);
   const phoneSetting = fieldOf(settings.data, DOCTOR_PHONE_KEY);
+  const templateSetting = fieldOf(settings.data, DOCTOR_TEMPLATE_KEY);
 
   return (
     <div className="space-y-6">
@@ -182,6 +196,37 @@ export function SettingsPage(): JSX.Element {
               {phoneError ? (
                 <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">
                   {phoneError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="max-w-md">
+              <Label htmlFor="doctor-template">Urgent-alert template name</Label>
+              <div className="mt-1.5 flex items-center gap-2">
+                <MessageSquareText className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden="true" />
+                <TextInput
+                  id="doctor-template"
+                  type="text"
+                  value={doctorTemplate}
+                  onChange={(event) => {
+                    setDoctorTemplate(event.target.value);
+                    setTemplateError(null);
+                  }}
+                  placeholder="urgent_reading_alert"
+                  aria-invalid={templateError !== null}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-ink-muted">{templateSetting?.description}</p>
+              <p className="mt-1.5 text-[11px] leading-5 text-ink-faint">
+                The template body must name the patient so the doctor can identify them, e.g.
+                <code className="mx-1 rounded bg-surface-sunken px-1 py-0.5">
+                  Urgent reading from {"{{patient_name}}"}: {"{{reason}}"}
+                </code>
+                Available values: {"{{patient_name}}"}, {"{{patient_phone}}"}, {"{{reason}}"}.
+              </p>
+              {templateError ? (
+                <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">
+                  {templateError}
                 </p>
               ) : null}
             </div>

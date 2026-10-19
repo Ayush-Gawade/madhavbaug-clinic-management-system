@@ -34,6 +34,15 @@ const SETTINGS: AppSetting[] = [
     updated_by: null,
     updated_at: null,
   },
+  {
+    key: "ai_autoreply_doctor_template",
+    value: "",
+    default: "",
+    description: "Name of the approved WhatsApp template used to page the doctor.",
+    type: "string",
+    updated_by: null,
+    updated_at: null,
+  },
 ];
 
 function renderPage(): void {
@@ -57,14 +66,18 @@ describe("SettingsPage", () => {
     }));
   });
 
-  it("loads the current values and saves both settings", async () => {
+  it("loads the current values and saves every setting", async () => {
     renderPage();
 
     const toggle = await screen.findByRole("switch");
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByLabelText("Doctor notified on urgent readings")).toHaveValue(
-      "+919359883349",
-    );
+    // Values arrive one render after the query resolves (hydration effect).
+    await waitFor(() => {
+      expect(screen.getByLabelText("Doctor notified on urgent readings")).toHaveValue(
+        "+919359883349",
+      );
+      expect(screen.getByLabelText("Urgent-alert template name")).toHaveValue("");
+    });
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -72,13 +85,31 @@ describe("SettingsPage", () => {
     fireEvent.change(screen.getByLabelText("Doctor notified on urgent readings"), {
       target: { value: "+911234567890" },
     });
+    fireEvent.change(screen.getByLabelText("Urgent-alert template name"), {
+      target: { value: "urgent_reading_alert" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
-      expect(updateMock).toHaveBeenCalledTimes(2);
+      expect(updateMock).toHaveBeenCalledTimes(3);
     });
     expect(updateMock).toHaveBeenNthCalledWith(1, "ai_autoreply_enabled", true);
     expect(updateMock).toHaveBeenNthCalledWith(2, "ai_autoreply_doctor_phone", "+911234567890");
+    expect(updateMock).toHaveBeenNthCalledWith(3, "ai_autoreply_doctor_template", "urgent_reading_alert");
+  });
+
+  it("rejects a template name Meta would refuse before calling the API", async () => {
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Urgent-alert template name"), {
+      target: { value: "Urgent Reading Alert" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(
+      await screen.findByText(/lowercase letters, digits and underscores/),
+    ).toBeInTheDocument();
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed doctor number before calling the API", async () => {
