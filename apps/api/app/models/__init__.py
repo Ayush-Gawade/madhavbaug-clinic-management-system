@@ -21,6 +21,7 @@ from app.models.alerts import (
     SafetyRule,
 )
 from app.models.audit import AuditEvent
+from app.models.auto_reply import AutoReply, AutoReplyMode, AutoReplyStatus
 from app.models.clinical import (
     CarePlan,
     CarePlanStatus,
@@ -67,6 +68,7 @@ from app.models.scheduling import (
     ScheduleStatus,
     TemplateCategory,
 )
+from app.models.settings import AppSetting
 from app.models.user import RefreshToken, StaffRole, StaffUser
 
 __all__ = [
@@ -77,7 +79,11 @@ __all__ = [
     "AlertPriority",
     "AlertStatus",
     "AlertType",
+    "AppSetting",
     "AuditEvent",
+    "AutoReply",
+    "AutoReplyMode",
+    "AutoReplyStatus",
     "CarePlan",
     "CarePlanStatus",
     "ClinicianAction",

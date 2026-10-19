@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     messaging,
     patients,
     schedules,
+    settings,
     users,
 )
 
@@ -24,5 +25,6 @@ api_router.include_router(schedules.router)
 api_router.include_router(messaging.router)
 api_router.include_router(media.router)
 api_router.include_router(alerts.router)
+api_router.include_router(settings.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)
