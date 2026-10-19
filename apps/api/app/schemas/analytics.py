@@ -48,10 +48,14 @@ class MessagingOverview(BaseModel):
     date_to: date
     patients_in_scope: int
     messages_sent: int
+    patients_messaged: int
     replies_received: int
+    patients_replied: int
     non_responders: int
     delivery_failures: int
+    patients_with_failures: int
     critical_alerts: int
+    patients_with_critical_alerts: int
     pending_observation_reviews: int
     ai_needs_clarification: int
     open_message_exceptions: int

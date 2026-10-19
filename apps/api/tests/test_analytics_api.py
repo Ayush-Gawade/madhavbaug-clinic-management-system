@@ -388,8 +388,11 @@ async def test_messaging_overview_counts_traffic_and_filters_by_category(
     body = overview.json()
     assert body["patients_in_scope"] == baseline["patients_in_scope"] + 2
     assert body["messages_sent"] == baseline["messages_sent"] + 3
+    assert body["patients_messaged"] == baseline["patients_messaged"] + 2
     assert body["replies_received"] == baseline["replies_received"] + 1
+    assert body["patients_replied"] == baseline["patients_replied"] + 1
     assert body["delivery_failures"] == baseline["delivery_failures"] + 1
+    assert body["patients_with_failures"] == baseline["patients_with_failures"] + 1
     assert any(item["text_body"] == "My sugar is 130 today" for item in body["recent_messages"])
 
     scoped = await client.get(
@@ -401,14 +404,57 @@ async def test_messaging_overview_counts_traffic_and_filters_by_category(
     scoped_body = scoped.json()
     assert scoped_body["patients_in_scope"] == baseline_cat["patients_in_scope"] + 1
     assert scoped_body["messages_sent"] == baseline_cat["messages_sent"] + 2
+    assert scoped_body["patients_messaged"] == baseline_cat["patients_messaged"] + 1
     assert scoped_body["replies_received"] == baseline_cat["replies_received"] + 1
+    assert scoped_body["patients_replied"] == baseline_cat["patients_replied"] + 1
     assert scoped_body["delivery_failures"] == baseline_cat["delivery_failures"] + 1
+    assert scoped_body["patients_with_failures"] == baseline_cat["patients_with_failures"] + 1
 
     older = await client.get(f"{API}/analytics/messaging", headers=headers, params=older_params)
     assert older.status_code == 200, older.text
     older_body = older.json()
     assert older_body["messages_sent"] == older_baseline["messages_sent"]
     assert older_body["replies_received"] == older_baseline["replies_received"] + 1
+
+
+async def test_messaging_overview_groups_replies_by_patient(
+    client, staff_factory, unique_email, session_factory
+) -> None:
+    """One patient writing several times counts once as a patient, N times as messages."""
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+
+    async with session_factory() as session:
+        today = (await session.execute(select(func.current_date()))).scalar_one()
+    params = {"date_from": today.isoformat(), "date_to": today.isoformat()}
+    baseline = (
+        await client.get(f"{API}/analytics/messaging", headers=headers, params=params)
+    ).json()
+
+    patient = await _register(client, headers)
+    patient_id = uuid.UUID(patient["id"])
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                WhatsAppMessage(
+                    patient_id=patient_id,
+                    direction=MessageDirection.INBOUND,
+                    message_type=MessageType.TEXT,
+                    text_body=f"Reply {index}",
+                    delivery_status=None,
+                    processing_status=MessageProcessingStatus.PROCESSED,
+                    received_at=now,
+                )
+                for index in range(3)
+            ]
+        )
+        await session.commit()
+
+    body = (await client.get(f"{API}/analytics/messaging", headers=headers, params=params)).json()
+    # Three inbound messages from a single patient: 3 messages, 1 patient.
+    assert body["replies_received"] == baseline["replies_received"] + 3
+    assert body["patients_replied"] == baseline["patients_replied"] + 1
 
 
 async def test_messaging_overview_unknown_category_returns_zero_counts(

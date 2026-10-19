@@ -208,6 +208,12 @@ class FollowUpInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     schedule: Mapped[FollowUpSchedule] = relationship(back_populates="instances", lazy="selectin")
+    patient: Mapped[Patient] = relationship(lazy="selectin")
+
+    @property
+    def patient_name(self) -> str | None:
+        """Patient name for API responses (eager-loaded via ``lazy="selectin"``)."""
+        return self.patient.full_name if self.patient is not None else None
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<FollowUpInstance {self.due_date:%Y-%m-%d} {self.status}>"

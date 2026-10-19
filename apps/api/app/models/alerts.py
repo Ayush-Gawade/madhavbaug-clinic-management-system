@@ -12,7 +12,7 @@ import enum
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -32,6 +32,9 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.clinical import Patient
 
 
 class RuleMetric(enum.StrEnum):
@@ -181,6 +184,12 @@ class Alert(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     actions: Mapped[list[ClinicianAction]] = relationship(
         back_populates="alert", cascade="all, delete-orphan", lazy="selectin"
     )
+    patient: Mapped[Patient] = relationship(lazy="selectin")
+
+    @property
+    def patient_name(self) -> str | None:
+        """Patient name for API responses (eager-loaded via ``lazy="selectin"``)."""
+        return self.patient.full_name if self.patient is not None else None
 
 
 class ClinicianAction(Base, UUIDPrimaryKeyMixin, TimestampMixin):

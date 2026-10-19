@@ -99,6 +99,21 @@ async def alert_summary(db: AsyncSession, *, patient_id: uuid.UUID | None = None
     by_priority = {priority.value: count for priority, count in priority_rows}
 
     open_total = sum(by_priority.values())
+
+    patients_open_total = (
+        await db.execute(
+            select(func.count(func.distinct(Alert.patient_id)))
+            .select_from(Alert)
+            .where(*open_filters)
+        )
+    ).scalar_one()
+    patients_open_urgent = (
+        await db.execute(
+            select(func.count(func.distinct(Alert.patient_id)))
+            .select_from(Alert)
+            .where(*open_filters, Alert.priority == AlertPriority.URGENT)
+        )
+    ).scalar_one()
     return {
         "open": by_status.get(AlertStatus.OPEN.value, 0),
         "acknowledged": by_status.get(AlertStatus.ACKNOWLEDGED.value, 0),
@@ -108,6 +123,8 @@ async def alert_summary(db: AsyncSession, *, patient_id: uuid.UUID | None = None
         "open_urgent": by_priority.get(AlertPriority.URGENT.value, 0),
         "open_priority": by_priority.get(AlertPriority.PRIORITY.value, 0),
         "open_routine": by_priority.get(AlertPriority.ROUTINE.value, 0),
+        "patients_open_total": patients_open_total,
+        "patients_open_urgent": patients_open_urgent,
     }
 
 

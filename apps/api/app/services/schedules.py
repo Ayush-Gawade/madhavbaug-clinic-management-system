@@ -432,7 +432,37 @@ async def day_counts(db: AsyncSession) -> dict[str, int]:
         )
     ).scalar_one()
 
-    return {"due_today": due_today, "overdue": overdue, "done_today": done_today}
+    patients_due_today = (
+        await db.execute(
+            select(func.count(func.distinct(FollowUpInstance.patient_id)))
+            .select_from(FollowUpInstance)
+            .where(
+                FollowUpInstance.due_date == today,
+                FollowUpInstance.status.in_(
+                    (FollowUpInstanceStatus.SCHEDULED, FollowUpInstanceStatus.QUEUED)
+                ),
+            )
+        )
+    ).scalar_one()
+
+    patients_overdue = (
+        await db.execute(
+            select(func.count(func.distinct(FollowUpInstance.patient_id)))
+            .select_from(FollowUpInstance)
+            .where(
+                FollowUpInstance.status == FollowUpInstanceStatus.OVERDUE,
+                FollowUpInstance.due_date <= today,
+            )
+        )
+    ).scalar_one()
+
+    return {
+        "due_today": due_today,
+        "overdue": overdue,
+        "done_today": done_today,
+        "patients_due_today": patients_due_today,
+        "patients_overdue": patients_overdue,
+    }
 
 
 async def create_template(db: AsyncSession, data: TemplateCreate) -> MessageTemplate:

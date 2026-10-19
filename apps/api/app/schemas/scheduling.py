@@ -113,6 +113,7 @@ class InstanceRead(BaseModel):
     id: uuid.UUID
     schedule_id: uuid.UUID
     patient_id: uuid.UUID
+    patient_name: str | None = None
     due_date: date
     due_at: datetime
     sent_at: datetime | None
@@ -197,3 +198,5 @@ class FollowUpDayCount(BaseModel):
     due_today: int
     overdue: int
     done_today: int
+    patients_due_today: int
+    patients_overdue: int

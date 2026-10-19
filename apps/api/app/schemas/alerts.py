@@ -68,6 +68,7 @@ class AlertRead(BaseModel):
 
     id: uuid.UUID
     patient_id: uuid.UUID
+    patient_name: str | None = None
     observation_id: uuid.UUID | None
     follow_up_instance_id: uuid.UUID | None
     rule_id: uuid.UUID | None
@@ -103,6 +104,8 @@ class AlertSummary(BaseModel):
     open_urgent: int
     open_priority: int
     open_routine: int
+    patients_open_total: int
+    patients_open_urgent: int
 
 
 class AlertActionRequest(BaseModel):

@@ -211,10 +211,14 @@ async def messaging_overview(
             date_to=date_to,
             patients_in_scope=0,
             messages_sent=0,
+            patients_messaged=0,
             replies_received=0,
+            patients_replied=0,
             non_responders=0,
             delivery_failures=0,
+            patients_with_failures=0,
             critical_alerts=0,
+            patients_with_critical_alerts=0,
             pending_observation_reviews=0,
             ai_needs_clarification=0,
             open_message_exceptions=0,
@@ -237,6 +241,17 @@ async def messaging_overview(
         )
     )
     messages_sent = await scoped_count(sent_stmt, WhatsAppMessage.patient_id)
+    patients_messaged = await scoped_count(
+        select(func.count(func.distinct(WhatsAppMessage.patient_id)))
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.OUTBOUND,
+            WhatsAppMessage.sent_at.is_not(None),
+            func.date(WhatsAppMessage.sent_at) >= date_from,
+            func.date(WhatsAppMessage.sent_at) <= date_to,
+        ),
+        WhatsAppMessage.patient_id,
+    )
 
     replies_stmt = (
         select(func.count())
@@ -249,6 +264,17 @@ async def messaging_overview(
         )
     )
     replies_received = await scoped_count(replies_stmt, WhatsAppMessage.patient_id)
+    patients_replied = await scoped_count(
+        select(func.count(func.distinct(WhatsAppMessage.patient_id)))
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.INBOUND,
+            WhatsAppMessage.received_at.is_not(None),
+            func.date(WhatsAppMessage.received_at) >= date_from,
+            func.date(WhatsAppMessage.received_at) <= date_to,
+        ),
+        WhatsAppMessage.patient_id,
+    )
 
     failures_stmt = (
         select(func.count())
@@ -263,6 +289,19 @@ async def messaging_overview(
         )
     )
     delivery_failures = await scoped_count(failures_stmt, WhatsAppMessage.patient_id)
+    patients_with_failures = await scoped_count(
+        select(func.count(func.distinct(WhatsAppMessage.patient_id)))
+        .select_from(WhatsAppMessage)
+        .where(
+            WhatsAppMessage.direction == MessageDirection.OUTBOUND,
+            WhatsAppMessage.delivery_status == DeliveryStatus.FAILED,
+            func.date(func.coalesce(WhatsAppMessage.sent_at, WhatsAppMessage.created_at))
+            >= date_from,
+            func.date(func.coalesce(WhatsAppMessage.sent_at, WhatsAppMessage.created_at))
+            <= date_to,
+        ),
+        WhatsAppMessage.patient_id,
+    )
 
     non_responders_stmt = (
         select(func.count(func.distinct(FollowUpInstance.patient_id)))
@@ -277,6 +316,12 @@ async def messaging_overview(
         .where(Alert.status == AlertStatus.OPEN, Alert.priority == AlertPriority.URGENT)
     )
     critical_alerts = await scoped_count(critical_stmt, Alert.patient_id)
+    patients_with_critical_alerts = await scoped_count(
+        select(func.count(func.distinct(Alert.patient_id)))
+        .select_from(Alert)
+        .where(Alert.status == AlertStatus.OPEN, Alert.priority == AlertPriority.URGENT),
+        Alert.patient_id,
+    )
 
     reviews_stmt = (
         select(func.count())
@@ -338,10 +383,14 @@ async def messaging_overview(
         date_to=date_to,
         patients_in_scope=patients_in_scope,
         messages_sent=messages_sent,
+        patients_messaged=patients_messaged,
         replies_received=replies_received,
+        patients_replied=patients_replied,
         non_responders=non_responders,
         delivery_failures=delivery_failures,
+        patients_with_failures=patients_with_failures,
         critical_alerts=critical_alerts,
+        patients_with_critical_alerts=patients_with_critical_alerts,
         pending_observation_reviews=pending_observation_reviews,
         ai_needs_clarification=ai_needs_clarification,
         open_message_exceptions=open_message_exceptions,
