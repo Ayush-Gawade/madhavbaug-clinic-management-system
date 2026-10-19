@@ -218,9 +218,11 @@ chain does not need admin.
 
 ---
 
-## 8. Remaining features (next increment, not started)
+## 8. Remaining features
 
-From the roadmap's own "remaining" list and the PRD open questions:
+From the roadmap's own "remaining" list and the PRD open questions. The one
+item here that has since been delivered is **AI auto-reply**, which landed as
+Phase E after the freeze; see §10.
 
 - Outbound retry/backoff for transient provider errors.
 - Interactive and outbound media composition.
@@ -251,3 +253,58 @@ Operational follow-ups:
 | Commits in freeze | 3 — worker loop fix · AI gateway/vision · media rendering |
 | Working tree | clean |
 | Secrets in tracked files | none (`.env*`, `*.log`, `data/` all ignored) |
+
+---
+
+## 10. Post-freeze increment: AI auto-reply (Phase E)
+
+The first increment after the freeze. Full design notes are in
+[ROADMAP.md](./ROADMAP.md) § *AI auto-reply with clinical escalation (Phase E)*;
+this section records what was verified, not what was intended.
+
+### 10.1 What is now true
+
+| Property | Verified by |
+|----------|-------------|
+| Nothing sends until a clinician switches it on | `test_nothing_is_sent_while_the_toggle_is_off` — no `auto_replies` row, no outbound message |
+| The rule engine decides, the model only words it | `test_decide_*` (five cases: safe, out-of-range, urgent, clarification, silent) |
+| No key means no reply, never a fallback template | `test_generation_is_refused_without_an_ai_key`, `test_generation_failure_is_recorded_not_raised` |
+| A patient cannot be messaged twice about one reading | `test_reply_is_generated_sent_and_recorded_exactly_once` (replayed task → `already_recorded`, one outbound row) |
+| An urgent finding pages the doctor exactly once | `test_urgent_reading_pages_the_doctor_exactly_once` (`doctor_notified_at` idempotent) |
+| A quiet reading never pages the doctor | `test_doctor_is_not_paged_without_an_urgent_reading` |
+| The doctor page survives a failed reply | the notification task is dispatched before generation and commits on its own |
+| A burst of messages does not become a burst of replies | `test_second_reading_within_the_cooldown_is_suppressed` (`suppressed` row, page still queued if urgent) |
+| The switch is typed, validated and audited | `test_settings_api.py` — `bool("false")` rejected, E.164 enforced, unknown keys rejected, `setting.updated` audit row, OWNER/DOCTOR only |
+
+### 10.2 The prompt's hard rules
+
+`auto-reply-v1` is asserted by `test_system_prompt_enforces_medical_guardrails`
+so the guardrails cannot be edited away by accident: use only the supplied
+facts, never invent a number or unit, not a doctor, no medication advice, no
+reassurance about an out-of-range reading, urgent says only that the care team
+has been informed, 240 characters, never claim to be an AI, never advise
+delaying care.
+
+### 10.3 Quality gates after Phase E
+
+| Gate | Result |
+|------|--------|
+| `ruff check` / `ruff format --check` | clean (102 files) |
+| `mypy` | clean (78 files) |
+| `pytest` | **230 passed** (was 201) |
+| `eslint` / `tsc --noEmit` / `vite build` | clean |
+| `vitest run` | **32 passed** (was 29) |
+
+### 10.4 Known limits of this increment
+
+These are recorded rather than hidden, and are on the roadmap's follow-up list:
+
+- The doctor is a single configured number, not per-clinician routing.
+- `auto_replies` is an audit trail in the database with no screen; a clinician
+  can see the alert but not which replies were auto-written.
+- The 60-second cooldown was chosen without real traffic. It never suppresses
+  the urgent page, but a patient who sends a second reading a minute later gets
+  no acknowledgement for it.
+- The prompt is tuned on our own synthetic phrasing. Real patient language,
+  code-switching and typos are untested, which is the main reason the feature
+  ships off by default.

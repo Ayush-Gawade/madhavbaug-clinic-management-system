@@ -446,13 +446,80 @@ work. Findings, evidence and the ops root cause for the earlier silent stack
 deaths are written up in **[EVALUATION.md](./EVALUATION.md)**. The frozen state
 is tagged `freeze/whatsapp-2026-10-18` and pushed to the project remote.
 
+## AI auto-reply with clinical escalation (Phase E)
+
+Phase D taught the system to *read* a patient's message. Phase E makes it
+*answer* — bounded, reversible, and always downstream of the deterministic rule
+engine. The engine still decides what a reading means; the model only writes the
+WhatsApp sentence that reports that decision back. Backend suite now **230**
+tests; web **32**.
+
+Design questions settled before a line was written: the doctor is notified over
+**WhatsApp** at the number held in settings; replies are **LLM-generated per
+message** (no templates); the feature is a **database setting with a Settings
+screen**, not an env flag, so it is reversible without a deploy; only
+**readings and clarification questions** are answered — greetings and open
+questions are left to staff; and "critical" means **`urgent`-priority rules
+only**.
+
+- **E1 two tables** (`models/settings.py`, `models/auto_reply.py`, migration
+  `d4e5f6a7b8c9`): `app_settings` for clinic-tunable key/value switches, and
+  `auto_replies` — one row per decided message, UNIQUE on `source_message_id`
+  so a retried worker or a manual re-analysis can never message a patient twice
+  about one reading. Both setting rows are seeded **disabled**; nothing sends
+  until a clinician switches it on.
+- **E2 settings service and API** (`services/settings.py`,
+  `api/v1/endpoints/settings.py`): a curated registry owns each setting's type,
+  default, description and normaliser, so an unknown or wrongly-typed key can
+  never be persisted. Writes are limited to OWNER/DOCTOR — a toggle is as
+  consequential as a threshold — and are audit-logged as `setting.updated`.
+  `bool("false")` is `True` in Python, so booleans are validated by type, not
+  coerced.
+- **E3 Settings screen** (`routes/SettingsPage.tsx`, `/settings`): the
+  auto-reply switch and the doctor's number, with client-side E.164 validation
+  mirroring the server, and an explicit note that urgent findings are what
+  reach the doctor.
+- **E4 decision engine** (`services/auto_reply.py`): a fixed mode table —
+  readings with an alert → `out_of_range_reading`, readings without →
+  `safe_reading`, no reading but a clarification question → `clarification`,
+  anything else → silence. The payload handed to the model is built from the
+  stored observation and the rule engine's own reason string, never from the
+  model's reading of the patient's words, and carries the last six messages for
+  context.
+- **E5 curated prompt and generator** (`auto-reply-v1`): ten hard rules —
+  use only the supplied facts, no diagnosis, no medication advice, no invented
+  numbers, no reassurance about an out-of-range reading, urgent says only that
+  the care team has been informed, 240 characters, never claim to be an AI,
+  never advise delaying care. **There is no template fallback**: with no
+  provider key the reply fails closed and is recorded as `failed`.
+- **E6 delivery as its own tasks** (`workers/tasks.py`,
+  `services/auto_reply_queue.py`): `generate_auto_reply` and
+  `notify_doctor_of_critical_reading` are separate Celery tasks so a send
+  failure can never roll back the observation or the alert that already
+  succeeded, and so an unreachable doctor number can never take back a message
+  the patient already received. Analysis enqueues the reply only when the
+  feature is on; a broker outage is logged and swallowed, so the safety path
+  never depends on it.
+
+Safety properties worth stating plainly: the alert is raised by the rule engine
+*before* any model is called, so an outage costs a reply, never a page; expected
+failures are written to the `auto_replies` row instead of raised, so the urgent
+notification still commits alongside a failed reply; the doctor notification is
+idempotent on `doctor_notified_at` and runs as its own task; and one reply per
+patient per 60 seconds suppresses bursts without ever suppressing the urgent
+page, which is recorded on a `suppressed` row rather than dropped.
+
 ## Remaining increments (planned)
 
-All planned increments (1–11) are complete, and the Phase C and D gaps above
+All planned increments (1–11) are complete, and the Phase C, D and E gaps above
 are closed. Further work is driven by the PRD's open questions (approved
 thresholds, live WhatsApp/AI enablement, financial inputs, media retention
 policy) and by operational feedback once the clinic goes live. Known
 non-blocking follow-ups are tracked in [EVALUATION.md](./EVALUATION.md) §8 —
 outbound retry/backoff for transient provider errors, interactive/outbound
-media composition, and the documented coverage gaps.
+media composition, the documented coverage gaps, and the Phase E follow-ups
+(prompt tuning against real patient language, per-clinician notification
+routing beyond the single configured number, a UI view of the `auto_replies`
+audit trail, and a review of the 60-second reply cooldown once real traffic
+exists).
 
