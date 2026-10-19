@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -49,6 +49,7 @@ from app.models.messaging import (
     MessageType,
     WhatsAppMessage,
 )
+from app.models.scheduling import MessageTemplate
 from app.services import ai as ai_service
 from app.services import auto_reply_queue
 from app.services import messaging as messaging_service
@@ -440,12 +441,73 @@ async def generate_and_send(db: AsyncSession, *, source_message_id: uuid.UUID) -
     }
 
 
-def doctor_message(patient: Patient | None, alerts: list[Alert]) -> str:
-    name = _first_name(patient) if patient is not None else "A patient"
+def doctor_reasons(alerts: list[Alert]) -> str:
+    """The alert text shared by the free-form page and the template's body."""
     reasons = "; ".join(alert.reason for alert in alerts[:2])
     if len(alerts) > 2:
         reasons += f"; +{len(alerts) - 2} more"
-    return f"Urgent reading from {name}: {reasons} Please review in Madhavbaug."
+    return reasons
+
+
+def doctor_message(patient: Patient | None, alerts: list[Alert]) -> str:
+    name = _first_name(patient) if patient is not None else "A patient"
+    return f"Urgent reading from {name}: {doctor_reasons(alerts)} Please review in Madhavbaug."
+
+
+def doctor_template_context(patient: Patient | None, alerts: list[Alert]) -> dict[str, str]:
+    """Placeholder values for the doctor page, mirroring ``template_context``.
+
+    Both named and 1-based positional placeholders resolve, so a stored body can
+    mirror Meta's numbered variables or use readable names. The patient is always
+    present — the doctor is paged about a specific person and cannot act on
+    "a reading" alone.
+
+    Positional slots, in order: ``1`` first name, ``2`` full name, ``3`` patient
+    phone, ``4`` alert reason.
+    """
+    if patient is not None:
+        context = messaging_service.template_context(patient)
+        phone = patient.phone_number or ""
+    else:
+        context = {"name": "", "patient_name": "", "1": "", "2": ""}
+        phone = ""
+    context.update(
+        {
+            "patient_phone": phone,
+            "3": phone,
+            "reason": doctor_reasons(alerts),
+            "4": doctor_reasons(alerts),
+        }
+    )
+    return context
+
+
+async def _load_doctor_template(db: AsyncSession, name: str) -> MessageTemplate | None:
+    """The stored body and language for a configured Meta template name.
+
+    Matched case-insensitively against ``code`` and ``name`` so the setting can
+    hold Meta's template identifier regardless of how the row is labelled here.
+    Only an approved, active row is usable — Meta rejects anything else, and the
+    failure is clearer stated up front than returned as an API error.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(MessageTemplate).where(
+                    or_(
+                        func.lower(MessageTemplate.code) == name,
+                        func.lower(MessageTemplate.name) == name,
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        if row.approved and row.is_active:
+            return row
+    return None
 
 
 async def notify_doctor(db: AsyncSession, *, auto_reply_id: uuid.UUID) -> dict[str, Any]:
@@ -478,9 +540,46 @@ async def notify_doctor(db: AsyncSession, *, auto_reply_id: uuid.UUID) -> dict[s
         return {"found": True, "notified": False, "reason": "no_doctor_phone"}
 
     patient = await db.get(Patient, row.patient_id) if row.patient_id else None
-    body = doctor_message(patient, urgent)
-    result = await whatsapp_client.send_text_message(phone, body)
     now = datetime.now(UTC)
+
+    # Meta accepts free-form messages only within 24 hours of the recipient's
+    # last message to us, and an urgent finding can arrive at any hour. So when
+    # a template is configured it is always used, never the text fallback.
+    #
+    # The template's stored body is what makes this work: its placeholders are
+    # resolved in order into Meta's positional parameters, so the doctor always
+    # sees which patient is in trouble.
+    template_name = await settings_service.auto_reply_doctor_template(db)
+    if template_name:
+        template = await _load_doctor_template(db, template_name)
+        if template is None:
+            # Configuration, not transport: retrying cannot fix it, so record it
+            # and do not raise into a retry storm.
+            row.error_message = (
+                f"Template '{template_name}' has no approved, active entry here. "
+                "Create it in Meta Business Manager, approve it, then add it under "
+                "Message templates with that name."
+            )
+            await db.flush()
+            return {
+                "found": True,
+                "notified": False,
+                "reason": "template_unavailable",
+                "auto_reply_id": str(row.id),
+            }
+        context = doctor_template_context(patient, urgent)
+        body = whatsapp_client.render_template(template.body, context)
+        message_type = MessageType.TEMPLATE
+        result = await whatsapp_client.send_template_message(
+            phone,
+            template_name,
+            template.language,
+            whatsapp_client.build_template_parameters(template.body, context),
+        )
+    else:
+        body = doctor_message(patient, urgent)
+        message_type = MessageType.TEXT
+        result = await whatsapp_client.send_text_message(phone, body)
 
     # Record the page exactly like any other outbound message, so it is
     # visible in the message log and its delivery status can be tracked.
@@ -493,7 +592,7 @@ async def notify_doctor(db: AsyncSession, *, auto_reply_id: uuid.UUID) -> dict[s
         patient_id=None,
         direction=MessageDirection.OUTBOUND,
         provider_message_id=result.provider_message_id,
-        message_type=MessageType.TEXT,
+        message_type=message_type,
         to_phone=phone,
         text_body=body,
         delivery_status=DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED,

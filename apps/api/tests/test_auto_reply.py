@@ -29,6 +29,7 @@ from app.models.messaging import (
     MessageType,
     WhatsAppMessage,
 )
+from app.models.scheduling import MessageTemplate, TemplateCategory
 from app.models.settings import AppSetting
 from app.services import ai as ai_service
 from app.services import auto_reply as auto_reply_service
@@ -627,6 +628,142 @@ async def test_doctor_page_is_recorded_as_an_outbound_message(
         )
         assert event is not None
         assert event.payload["kind"] == "doctor_notification"
+
+
+@pytest.mark.integration
+async def test_doctor_page_uses_the_template_and_names_the_patient(
+    session_factory: async_sessionmaker[AsyncSession],
+    enqueued: SimpleNamespace,
+    fake_generation: list[str],
+    reset_settings: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside the 24-hour window Meta only accepts templates.
+
+    The doctor must be able to tell *which* patient is in trouble, so the
+    patient's identity is a required part of the body, not an optional nicety.
+    """
+    sent: list[tuple[str, str, list[str]]] = []
+    real_send_template = whatsapp_client.send_template_message
+
+    async def _record(to_phone, template_name, language="en", body_parameters=None):
+        sent.append((to_phone, template_name, body_parameters or []))
+        return await real_send_template(to_phone, template_name, language, body_parameters)
+
+    monkeypatch.setattr(whatsapp_client, "send_template_message", _record)
+
+    async with session_factory() as session:
+        patient = await _patient(session)
+        message = await _inbound(session, patient, body="bp 146/90")
+        extraction = await _extraction(session, patient=patient, message=message)
+        observation = await _observe(session, patient=patient, extraction=extraction)
+        await _alert(
+            session, patient=patient, observation=observation, priority=AlertPriority.URGENT
+        )
+        await _enable_auto_reply(session)
+        await settings_service.set_setting(
+            session,
+            settings_service.SETTING_AI_AUTOREPLY_DOCTOR_TEMPLATE,
+            "urgent_reading_alert",
+        )
+        session.add(
+            MessageTemplate(
+                code="urgent_reading_alert",
+                # Deliberately labelled differently: the setting carries Meta's
+                # name, the row only supplies body and language.
+                name="Urgent reading alert",
+                category=TemplateCategory.HUMAN_ASSISTANCE,
+                language="en",
+                body="Urgent reading from {{patient_name}} ({{patient_phone}}): {{reason}}",
+                is_active=True,
+                approved=True,
+            )
+        )
+        await session.flush()
+
+        result = await auto_reply_service.generate_and_send(session, source_message_id=message.id)
+        await session.commit()
+        reply_id = uuid.UUID(result["auto_reply_id"])
+        outcome = await auto_reply_service.notify_doctor(session, auto_reply_id=reply_id)
+        await session.commit()
+
+        page = (
+            (
+                await session.execute(
+                    select(WhatsAppMessage).where(
+                        WhatsAppMessage.message_type == MessageType.TEMPLATE,
+                        WhatsAppMessage.to_phone == "+919359883349",
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    assert outcome["notified"] is True
+    assert len(sent) == 1
+    to_phone, name, params = sent[0]
+    assert to_phone == "+919359883349"
+    assert name == "urgent_reading_alert"
+    # Positional order follows the stored body: name, phone, reason.
+    assert params[0] == "Sanket Sonwane"
+    assert params[1] == "+918468902367"
+    assert params[2].startswith("Glucose 52 mg/dL")
+
+    assert page is not None
+    assert page.patient_id is None
+    # Recorded as what was actually sent, so the log reads like the doctor saw it.
+    assert page.text_body == (
+        "Urgent reading from Sanket Sonwane (+918468902367): "
+        "Glucose 52 mg/dL is below the configured urgent threshold of 60 mg/dL."
+    )
+
+
+@pytest.mark.integration
+async def test_a_configured_but_unapproved_template_fails_visibly(
+    session_factory: async_sessionmaker[AsyncSession],
+    enqueued: SimpleNamespace,
+    fake_generation: list[str],
+    reset_settings: None,
+    recorded_sends: list[tuple[str, str]],
+) -> None:
+    """Misconfiguration is recorded, not raised into a retry storm."""
+    async with session_factory() as session:
+        patient = await _patient(session)
+        message = await _inbound(session, patient, body="sugar 52 mg/dL")
+        extraction = await _extraction(session, patient=patient, message=message)
+        observation = await _observe(session, patient=patient, extraction=extraction)
+        await _alert(
+            session, patient=patient, observation=observation, priority=AlertPriority.URGENT
+        )
+        await _enable_auto_reply(session)
+        # A distinct name: the shared schema still holds the approved template
+        # the previous test created, and this test is about the missing row.
+        await settings_service.set_setting(
+            session,
+            settings_service.SETTING_AI_AUTOREPLY_DOCTOR_TEMPLATE,
+            "never_approved_template",
+        )
+
+        result = await auto_reply_service.generate_and_send(session, source_message_id=message.id)
+        await session.commit()
+        reply_id = uuid.UUID(result["auto_reply_id"])
+        outcome = await auto_reply_service.notify_doctor(session, auto_reply_id=reply_id)
+        await session.commit()
+
+        row = await session.get(AutoReply, reply_id)
+
+    assert outcome["notified"] is False
+    assert outcome["reason"] == "template_unavailable"
+    # The patient still gets their reply, but nothing goes to the doctor: an
+    # unconfigured template must not silently fall back to free-form text.
+    assert [send for send in recorded_sends if send[0] == "+919359883349"] == []
+    assert len(recorded_sends) == 1
+    assert row is not None
+    assert row.doctor_notified_at is None
+    assert row.error_message is not None
+    assert "never_approved_template" in row.error_message
+    assert "Meta Business Manager" in row.error_message
 
 
 @pytest.mark.integration

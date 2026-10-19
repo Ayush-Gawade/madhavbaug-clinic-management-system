@@ -26,8 +26,11 @@ from app.models.settings import AppSetting
 
 SETTING_AI_AUTOREPLY_ENABLED = "ai_autoreply_enabled"
 SETTING_AI_AUTOREPLY_DOCTOR_PHONE = "ai_autoreply_doctor_phone"
+SETTING_AI_AUTOREPLY_DOCTOR_TEMPLATE = "ai_autoreply_doctor_template"
 
 _E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+#: Meta's own rule for template names: lowercase, digits, underscores.
+_TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,21 @@ def _validate_e164(value: str) -> None:
         raise ValidationError("Phone number must be in international format, e.g. +919359883349.")
 
 
+def _normalise_template_name(value: Any) -> Any:
+    return value.strip() if isinstance(value, str) else value
+
+
+def _validate_template_name(value: Any) -> None:
+    """An empty name is a real answer: the template is simply not configured yet."""
+    if value == "":
+        return
+    if not isinstance(value, str) or not _TEMPLATE_NAME_RE.match(value):
+        raise ValidationError(
+            "Template name must be lowercase letters, digits and underscores only, "
+            "e.g. urgent_reading_alert."
+        )
+
+
 REGISTRY: dict[str, SettingSpec] = {
     spec.key: spec
     for spec in (
@@ -87,6 +105,19 @@ REGISTRY: dict[str, SettingSpec] = {
             value_type=str,
             normalize=_normalise_phone,
             validate=_validate_e164,
+        ),
+        SettingSpec(
+            key=SETTING_AI_AUTOREPLY_DOCTOR_TEMPLATE,
+            default="",
+            description=(
+                "Name of the approved WhatsApp template used to page the doctor, e.g. "
+                "urgent_reading_alert. Must be created in Meta Business Manager first. "
+                "Leave empty to send free-form text, which Meta only accepts within 24 "
+                "hours of the doctor's last message to the clinic."
+            ),
+            value_type=str,
+            normalize=_normalise_template_name,
+            validate=_validate_template_name,
         ),
     )
 }
@@ -199,3 +230,8 @@ async def is_auto_reply_enabled(db: AsyncSession) -> bool:
 
 async def auto_reply_doctor_phone(db: AsyncSession) -> str:
     return str(await get_setting(db, SETTING_AI_AUTOREPLY_DOCTOR_PHONE))
+
+
+async def auto_reply_doctor_template(db: AsyncSession) -> str:
+    """Configured template name for the doctor page; empty when unset."""
+    return str(await get_setting(db, SETTING_AI_AUTOREPLY_DOCTOR_TEMPLATE)).strip()

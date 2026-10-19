@@ -46,13 +46,20 @@ async def test_catalogue_returns_registered_keys_with_defaults(client, staff_fac
 
     settings = await _catalogue(client, headers)
 
-    assert set(settings) == {"ai_autoreply_enabled", "ai_autoreply_doctor_phone"}
+    assert set(settings) == {
+        "ai_autoreply_enabled",
+        "ai_autoreply_doctor_phone",
+        "ai_autoreply_doctor_template",
+    }
     enabled = settings["ai_autoreply_enabled"]
     assert enabled["value"] is False
     assert enabled["default"] is False
     assert enabled["type"] == "boolean"
     assert enabled["updated_at"] is None
     assert settings["ai_autoreply_doctor_phone"]["value"] == "+919359883349"
+    # Unset is a legitimate value: no template configured yet.
+    assert settings["ai_autoreply_doctor_template"]["value"] == ""
+    assert settings["ai_autoreply_doctor_template"]["type"] == "string"
 
 
 async def test_owner_can_switch_auto_reply_on(client, staff_factory, unique_email):
@@ -124,6 +131,36 @@ async def test_invalid_doctor_phone_is_rejected(client, staff_factory, unique_em
     )
     assert response.status_code == 422
     assert "international format" in response.json()["error"]["message"]
+
+
+async def test_template_name_must_be_a_meta_identifier(client, staff_factory, unique_email):
+    await staff_factory(email=unique_email, role=StaffRole.OWNER)
+    headers = _headers(await _login(client, unique_email))
+
+    rejected = await client.put(
+        f"{API}/settings/ai_autoreply_doctor_template",
+        headers=headers,
+        json={"value": "Urgent Reading Alert"},
+    )
+    assert rejected.status_code == 422
+    assert "lowercase" in rejected.json()["error"]["message"]
+
+    accepted = await client.put(
+        f"{API}/settings/ai_autoreply_doctor_template",
+        headers=headers,
+        json={"value": "urgent_reading_alert"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["value"] == "urgent_reading_alert"
+
+    # Clearing it is how a clinic turns the template path back off.
+    cleared = await client.put(
+        f"{API}/settings/ai_autoreply_doctor_template",
+        headers=headers,
+        json={"value": ""},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["value"] == ""
 
 
 async def test_unknown_setting_key_is_rejected(client, staff_factory, unique_email):
