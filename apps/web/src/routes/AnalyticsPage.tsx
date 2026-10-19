@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { Activity, BarChart3, ClipboardList, IndianRupee, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { Badge, Card, EmptyState, ErrorNotice, Loading } from "@/components/ui";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { StatCard } from "@/components/StatCard";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
+import { Badge, Card, CardHeader, EmptyState, ErrorNotice, Loading } from "@/components/ui";
 import {
   getAdherence,
   getClinicOverview,
@@ -18,22 +23,13 @@ const PRIORITY_TONES: Record<AlertPriority, string> = {
   routine: "slate",
 };
 
-function Stat({ label, value }: { label: string; value: string | number }): JSX.Element {
-  return (
-    <Card className="p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
-    </Card>
-  );
-}
-
 function OverviewSection(): JSX.Element {
   const { data, isPending, isError } = useQuery({
     queryKey: ["analytics-overview"],
     queryFn: getClinicOverview,
   });
 
-  if (isPending) return <Loading />;
+  if (isPending) return <SkeletonTable rows={3} cols={4} />;
   if (isError || !data) return <ErrorNotice message="Failed to load clinic overview." />;
 
   const categories = data.category_counts
@@ -42,22 +38,27 @@ function OverviewSection(): JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Active patients" value={`${data.active_patients} / ${data.total_patients}`} />
-        <Stat label="Follow-ups due today" value={data.follow_ups_due_today} />
-        <Stat label="Completed today" value={data.follow_ups_completed_today} />
-        <Stat label="Overdue follow-ups" value={data.follow_ups_overdue} />
-        <Stat label="Open alerts" value={data.open_alerts} />
-        <Stat label="Urgent alerts" value={data.open_urgent_alerts} />
-        <Stat label="Pending reviews" value={data.pending_observation_reviews} />
-        <Stat label="Open exceptions" value={data.open_message_exceptions} />
-        <Stat label="Failed deliveries" value={data.failed_deliveries} />
-        <Stat label="Pending clarifications" value={data.pending_clarifications} />
-        <Stat label="AI clarifications" value={data.ai_needs_clarification} />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+        <StatCard
+          label="Active patients"
+          icon={<Activity className="h-4 w-4" />}
+          tone="brand"
+          value={`${data.active_patients} / ${data.total_patients}`}
+        />
+        <StatCard label="Follow-ups due today" value={data.follow_ups_due_today} />
+        <StatCard label="Completed today" tone="success" value={data.follow_ups_completed_today} />
+        <StatCard label="Overdue follow-ups" tone="danger" value={data.follow_ups_overdue} />
+        <StatCard label="Open alerts" value={data.open_alerts} />
+        <StatCard label="Urgent alerts" tone="danger" value={data.open_urgent_alerts} />
+        <StatCard label="Pending reviews" tone="warning" value={data.pending_observation_reviews} />
+        <StatCard label="Open exceptions" value={data.open_message_exceptions} />
+        <StatCard label="Failed deliveries" tone="danger" value={data.failed_deliveries} />
+        <StatCard label="Pending clarifications" value={data.pending_clarifications} />
+        <StatCard label="AI clarifications" value={data.ai_needs_clarification} />
       </div>
       <Card className="p-4">
-        <p className="text-sm font-medium text-slate-700">Patients by category</p>
-        <p className="mt-1 text-sm text-slate-600">{categories || "No categories assigned."}</p>
+        <p className="text-sm font-medium text-ink">Patients by category</p>
+        <p className="mt-1 text-sm text-ink-secondary">{categories || "No categories assigned."}</p>
       </Card>
     </div>
   );
@@ -71,38 +72,47 @@ function OperationsSection(): JSX.Element {
 
   return (
     <Card>
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <p className="text-sm font-medium text-slate-700">Patients requiring action</p>
-        {data ? <Badge tone="slate">{data.total} total</Badge> : null}
-      </div>
+      <CardHeader
+        title="Patients requiring action"
+        description="Prioritised by latest activity and alert severity."
+        actions={data ? <Badge tone="slate">{data.total} total</Badge> : null}
+      />
       {isPending ? (
-        <Loading />
+        <SkeletonTable rows={4} cols={3} />
       ) : isError || !data ? (
         <div className="p-4">
           <ErrorNotice message="Failed to load daily operations." />
         </div>
       ) : data.items.length === 0 ? (
-        <EmptyState message="Nothing requires action right now." />
+        <EmptyState
+          icon={<ClipboardList className="h-5 w-5" />}
+          message="Nothing requires action right now."
+        />
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line/70">
           {data.items.map((item) => (
-            <li key={item.patient_id} className="flex items-start justify-between gap-3 px-4 py-3">
+            <li
+              key={item.patient_id}
+              className="flex items-start justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-surface-sunken/40"
+            >
               <div className="min-w-0">
                 <Link
                   to={`/patients/${item.patient_id}`}
-                  className="text-sm font-medium text-brand-700 hover:underline"
+                  className="text-sm font-semibold text-brand-700 transition hover:text-brand-800 dark:text-brand-300"
                 >
                   {item.patient_name}
                 </Link>
-                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-slate-500">
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-ink-muted">
                   {item.reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                   ))}
                 </ul>
               </div>
               <div className="shrink-0 text-right">
-                <Badge tone={PRIORITY_TONES[item.priority]}>{item.priority}</Badge>
-                <p className="mt-1 text-xs text-slate-400">{formatDate(item.latest_activity)}</p>
+                <Badge tone={PRIORITY_TONES[item.priority]} dot={item.priority !== "routine"}>
+                  {item.priority}
+                </Badge>
+                <p className="mt-1 text-xs text-ink-faint">{formatDate(item.latest_activity)}</p>
               </div>
             </li>
           ))}
@@ -122,36 +132,39 @@ function AdherenceSection(): JSX.Element {
   if (isError || !data) return <ErrorNotice message="Failed to load adherence summary." />;
 
   return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-700">Follow-up adherence</p>
-        <p className="text-xs text-slate-400">
-          {data.date_from} → {data.date_to}
-        </p>
+    <Card>
+      <CardHeader
+        title="Follow-up adherence"
+        actions={
+          <span className="text-xs text-ink-muted">
+            {data.date_from} → {data.date_to}
+          </span>
+        }
+      />
+      <div className="grid grid-cols-2 gap-3 p-4 text-sm sm:grid-cols-5">
+        {[
+          { label: "Scheduled", value: data.scheduled_total },
+          { label: "Completed", value: data.completed },
+          { label: "Overdue", value: data.overdue },
+          { label: "Skipped", value: data.skipped },
+          { label: "Completion", value: `${data.completion_rate_percent}%`, highlight: true },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className="rounded-xl border border-line bg-surface-sunken/50 px-3.5 py-3"
+          >
+            <p className="text-xs text-ink-muted">{item.label}</p>
+            <p
+              className={`mt-0.5 text-lg font-bold tabular-nums ${
+                item.highlight ? "text-brand-700 dark:text-brand-300" : "text-ink"
+              }`}
+            >
+              {item.value}
+            </p>
+          </div>
+        ))}
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-        <div>
-          <p className="text-xs text-slate-500">Scheduled</p>
-          <p className="font-semibold">{data.scheduled_total}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Completed</p>
-          <p className="font-semibold">{data.completed}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Overdue</p>
-          <p className="font-semibold">{data.overdue}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Skipped</p>
-          <p className="font-semibold">{data.skipped}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">Completion</p>
-          <p className="font-semibold text-brand-700">{data.completion_rate_percent}%</p>
-        </div>
-      </div>
-      <p className="mt-3 text-xs text-slate-400">{data.rate_definition}</p>
+      <p className="px-4 pb-4 text-xs text-ink-muted">{data.rate_definition}</p>
     </Card>
   );
 }
@@ -168,45 +181,63 @@ function FinanceSection(): JSX.Element {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Total billed (est.)" value={data.total_charges} />
-        <Stat label="Recorded revenue" value={data.recorded_revenue} />
-        <Stat label="Outstanding" value={data.outstanding} />
-        <Stat label="Est. contribution" value={data.estimated_contribution} />
+        <StatCard
+          label="Total billed (est.)"
+          icon={<IndianRupee className="h-4 w-4" />}
+          value={data.total_charges}
+        />
+        <StatCard
+          label="Recorded revenue"
+          icon={<TrendingUp className="h-4 w-4" />}
+          tone="success"
+          value={data.recorded_revenue}
+        />
+        <StatCard label="Outstanding" tone="warning" value={data.outstanding} />
+        <StatCard
+          label="Est. contribution"
+          icon={<BarChart3 className="h-4 w-4" />}
+          tone="brand"
+          value={data.estimated_contribution}
+        />
       </div>
       <Card>
-        <p className="border-b border-slate-100 px-4 py-3 text-sm font-medium text-slate-700">
-          Contribution by treatment (estimated)
-        </p>
+        <CardHeader title="Contribution by treatment (estimated)" />
         {data.lines.length === 0 ? (
           <EmptyState message="No active treatment assignments." />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-2">Treatment</th>
-                <th className="px-4 py-2">Assignments</th>
-                <th className="px-4 py-2">Billed</th>
-                <th className="px-4 py-2">Direct cost</th>
-                <th className="px-4 py-2">Contribution</th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[600px]">
+            <THead>
+              <TH>Treatment</TH>
+              <TH align="right">Assignments</TH>
+              <TH align="right">Billed</TH>
+              <TH align="right">Direct cost</TH>
+              <TH align="right">Contribution</TH>
+            </THead>
             <tbody>
               {data.lines.map((line) => (
-                <tr key={line.treatment_id} className="border-b border-slate-50">
-                  <td className="px-4 py-2">{line.name}</td>
-                  <td className="px-4 py-2">{line.assignments}</td>
-                  <td className="px-4 py-2">{line.billed}</td>
-                  <td className="px-4 py-2">{line.estimated_direct_costs}</td>
-                  <td className="px-4 py-2 font-medium">{line.estimated_contribution}</td>
-                </tr>
+                <TR key={line.treatment_id}>
+                  <TD className="font-medium text-ink">{line.name}</TD>
+                  <TD align="right" className="tabular-nums text-ink-secondary">
+                    {line.assignments}
+                  </TD>
+                  <TD align="right" className="tabular-nums text-ink-secondary">
+                    {line.billed}
+                  </TD>
+                  <TD align="right" className="tabular-nums text-ink-secondary">
+                    {line.estimated_direct_costs}
+                  </TD>
+                  <TD align="right" className="font-semibold tabular-nums text-ink">
+                    {line.estimated_contribution}
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </Card>
       <Card className="p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</p>
-        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Notes</p>
+        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs text-ink-secondary">
           {data.notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
@@ -223,17 +254,18 @@ export function AnalyticsPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Analytics</h1>
-        <p className="text-sm text-slate-500">Clinic overview, operations and financial reporting.</p>
-      </div>
+      <PageHeader
+        title="Analytics"
+        description="Clinic overview, operations and financial reporting."
+      />
 
       {canViewClinical ? <OverviewSection /> : null}
       {canViewClinical ? <OperationsSection /> : null}
       {canViewClinical ? <AdherenceSection /> : null}
       {canViewFinance ? (
         <div className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-ink-muted">
+            <IndianRupee className="h-4 w-4" />
             Financial overview
           </h2>
           <FinanceSection />

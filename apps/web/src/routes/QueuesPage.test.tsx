@@ -93,6 +93,7 @@ const SCHEDULE: FollowUpSchedule = {
 const ALERT: Alert = {
   id: "alert-1",
   patient_id: "patient-1",
+  patient_name: "Asha Patil",
   observation_id: null,
   follow_up_instance_id: null,
   rule_id: null,
@@ -119,6 +120,7 @@ const OVERDUE: FollowUpInstance = {
   id: "instance-1",
   schedule_id: "schedule-1",
   patient_id: "patient-1",
+  patient_name: "Asha Patil",
   due_date: "2026-10-10",
   due_at: "2026-10-10T08:00:00Z",
   sent_at: "2026-10-10T08:01:00Z",

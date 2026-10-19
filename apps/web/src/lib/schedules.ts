@@ -114,10 +114,16 @@ export async function getFollowUpDayCount(): Promise<{
   due_today: number;
   overdue: number;
   done_today: number;
+  patients_due_today: number;
+  patients_overdue: number;
 }> {
-  return apiFetch<{ due_today: number; overdue: number; done_today: number }>(
-    "/follow-ups/day-count",
-  );
+  return apiFetch<{
+    due_today: number;
+    overdue: number;
+    done_today: number;
+    patients_due_today: number;
+    patients_overdue: number;
+  }>("/follow-ups/day-count");
 }
 
 export async function listTemplates(activeOnly = true): Promise<MessageTemplate[]> {

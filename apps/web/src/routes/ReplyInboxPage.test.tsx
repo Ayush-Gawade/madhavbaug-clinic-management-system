@@ -5,44 +5,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReplyInboxPage } from "./ReplyInboxPage";
 import { ApiError } from "@/lib/api";
-import type { MessageTemplate, Page, Patient, WhatsAppMessage } from "@/lib/types";
+import type { InboxThread, MessageTemplate, Page, WhatsAppMessage } from "@/lib/types";
 
 vi.mock("@/lib/messaging", () => ({
-  listMessages: vi.fn(),
+  listInboxThreads: vi.fn(),
   listPatientMessages: vi.fn(),
   sendReply: vi.fn(),
-}));
-vi.mock("@/lib/patients", () => ({
-  listPatients: vi.fn(),
 }));
 vi.mock("@/lib/schedules", () => ({
   listTemplates: vi.fn(),
 }));
 
-import { listMessages, listPatientMessages, sendReply } from "@/lib/messaging";
-import { listPatients } from "@/lib/patients";
+import { listInboxThreads, listPatientMessages, sendReply } from "@/lib/messaging";
 import { listTemplates } from "@/lib/schedules";
 
-const listMessagesMock = vi.mocked(listMessages);
+const listInboxThreadsMock = vi.mocked(listInboxThreads);
 const listThreadMock = vi.mocked(listPatientMessages);
 const sendReplyMock = vi.mocked(sendReply);
-const listPatientsMock = vi.mocked(listPatients);
 const listTemplatesMock = vi.mocked(listTemplates);
 
-const PATIENT: Patient = {
-  id: "patient-1",
-  internal_id: "MB0001",
-  full_name: "Asha Patil",
-  phone_number: "+91 98765 43210",
-  preferred_language: "en",
-  date_of_onboarding: null,
-  assigned_clinician_id: null,
-  status: "active",
-  dietary_restrictions: null,
-  communication_preferences: null,
-  categories: [],
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
+const THREAD: InboxThread = {
+  patient_id: "patient-1",
+  patient_name: "Asha Patil",
+  latest_message_id: "m1",
+  latest_direction: "inbound",
+  latest_text_body: "Is fasting sugar fine?",
+  latest_media_mime_type: null,
+  latest_at: "2026-10-12T06:00:00Z",
+  inbound_count: 2,
 };
 
 function makeMessage(overrides: Partial<WhatsAppMessage>): WhatsAppMessage {
@@ -110,23 +100,22 @@ function renderPage(): void {
 
 describe("ReplyInboxPage", () => {
   beforeEach(() => {
-    listMessagesMock.mockReset();
+    listInboxThreadsMock.mockReset();
     listThreadMock.mockReset();
     sendReplyMock.mockReset();
-    listPatientsMock.mockReset();
     listTemplatesMock.mockReset();
 
-    listPatientsMock.mockResolvedValue(pageOf([PATIENT]));
-    listMessagesMock.mockResolvedValue(pageOf([INBOUND]));
+    listInboxThreadsMock.mockResolvedValue(pageOf([THREAD]));
     listThreadMock.mockResolvedValue(pageOf([INBOUND, OUTBOUND]));
     listTemplatesMock.mockResolvedValue([APPROVED_TEMPLATE]);
   });
 
-  it("lists inbound patient messages with a reply action", async () => {
+  it("lists one row per patient with the reply count", async () => {
     renderPage();
 
     expect(await screen.findByText("Is fasting sugar fine?")).toBeInTheDocument();
     expect(screen.getByText("Asha Patil")).toBeInTheDocument();
+    expect(screen.getByText(/2\s+messages/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Reply" }).length).toBeGreaterThan(0);
   });
 

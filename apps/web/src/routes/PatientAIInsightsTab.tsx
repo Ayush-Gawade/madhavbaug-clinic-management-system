@@ -1,7 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, Sparkles } from "lucide-react";
 import { useState } from "react";
 
-import { Badge, Button, Card, EmptyState, ErrorNotice, Loading } from "@/components/ui";
+import { toast } from "@/components/Toast";
+import {
+  Badge,
+  Button,
+  Card,
+  Callout,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+} from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { analyzeMessage, listPatientExtractions } from "@/lib/ai";
 import { formatDate } from "@/lib/format";
@@ -37,44 +47,51 @@ function ExtractionCard({
 }): JSX.Element {
   const observations = observationsOf(extraction);
   return (
-    <li className="px-4 py-4">
+    <li className="space-y-2.5 px-5 py-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Badge tone={STATUS_TONES[extraction.status]}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={STATUS_TONES[extraction.status]} dot>
             {extraction.status.replace("_", " ")}
           </Badge>
           <Badge tone="slate">{extraction.modality}</Badge>
-          {extraction.intent ? <span className="text-sm text-slate-600">{extraction.intent}</span> : null}
+          {extraction.intent ? (
+            <span className="text-sm font-medium text-ink-secondary">{extraction.intent}</span>
+          ) : null}
         </div>
-        <span className="text-xs text-slate-400">{formatDate(extraction.created_at)}</span>
+        <span className="text-xs text-ink-muted">{formatDate(extraction.created_at)}</span>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
         <span>
-          Model: <span className="text-slate-700">{extraction.model}</span>
+          Model <span className="font-medium text-ink-secondary">{extraction.model}</span>
         </span>
         <span>
-          Prompt: <span className="text-slate-700">{extraction.prompt_version}</span>
+          Prompt <span className="font-medium text-ink-secondary">{extraction.prompt_version}</span>
         </span>
-        {extraction.confidence ? <span>Confidence: {Number(extraction.confidence).toFixed(2)}</span> : null}
-        <span>Observations created: {extraction.observations_created}</span>
+        {extraction.confidence ? (
+          <span>
+            Confidence{" "}
+            <span className="font-semibold text-brand-700 dark:text-brand-300">
+              {Number(extraction.confidence).toFixed(2)}
+            </span>
+          </span>
+        ) : null}
+        <span>Observations created {extraction.observations_created}</span>
       </div>
 
       {extraction.clarification_question ? (
-        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {extraction.clarification_question}
-        </p>
+        <Callout tone="warning">{extraction.clarification_question}</Callout>
       ) : null}
 
-      {extraction.error_message ? (
-        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{extraction.error_message}</p>
-      ) : null}
+      {extraction.error_message ? <Callout tone="danger">{extraction.error_message}</Callout> : null}
 
       {observations.length > 0 ? (
-        <ul className="mt-2 space-y-1 text-sm">
+        <ul className="space-y-1 rounded-lg bg-surface-sunken px-3 py-2.5 text-sm">
           {observations.map((observation, index) => (
-            <li key={`${observation.type}-${index}`} className="text-slate-700">
-              <span className="capitalize">{observation.type?.replace("_", " ")}</span>
+            <li key={`${observation.type}-${index}`} className="text-ink-secondary">
+              <span className="capitalize font-medium text-ink">
+                {observation.type?.replace("_", " ")}
+              </span>
               {observation.value != null ? `: ${observation.value}` : ""}
               {observation.unit ? ` ${observation.unit}` : ""}
               {observation.context
@@ -88,12 +105,14 @@ function ExtractionCard({
       ) : null}
 
       {extraction.message_id ? (
-        <div className="mt-3">
+        <div>
           <Button
-            variant="ghost"
+            variant="secondary"
+            size="sm"
             disabled={busy}
             onClick={() => onReanalyze(extraction.message_id as string)}
           >
+            <RefreshCw className="h-3.5 w-3.5" />
             {busy ? "Re-analyzing…" : "Re-analyze message"}
           </Button>
         </div>
@@ -115,6 +134,7 @@ export function PatientAIInsightsTab({ patientId }: { patientId: string }): JSX.
     mutationFn: (messageId: string) => analyzeMessage(messageId),
     onSuccess: () => {
       setError(null);
+      toast.success("Message queued for re-analysis");
       void queryClient.invalidateQueries({ queryKey: ["ai-extractions", patientId] });
       void queryClient.invalidateQueries({ queryKey: ["observations", patientId] });
     },
@@ -126,14 +146,19 @@ export function PatientAIInsightsTab({ patientId }: { patientId: string }): JSX.
 
   const extractions = data?.items ?? [];
   if (extractions.length === 0) {
-    return <EmptyState message="No AI extractions for this patient yet." />;
+    return (
+      <EmptyState
+        icon={<Sparkles className="h-5 w-5" />}
+        message="No AI extractions for this patient yet."
+      />
+    );
   }
 
   return (
     <div className="space-y-4">
       {error ? <ErrorNotice message={error} /> : null}
       <Card>
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {extractions.map((extraction) => (
             <ExtractionCard
               key={extraction.id}

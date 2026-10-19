@@ -1,7 +1,18 @@
 /** Typed API calls for WhatsApp messaging. */
 
 import { apiFetch } from "./api";
-import type { MessageException, Page, WhatsAppMessage } from "./types";
+import type { InboxThread, MessageException, Page, WhatsAppMessage } from "./types";
+
+export async function listInboxThreads(params?: {
+  page?: number;
+  size?: number;
+}): Promise<Page<InboxThread>> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.size) query.set("size", String(params.size));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<Page<InboxThread>>(`/messages/inbox${suffix}`);
+}
 
 export async function listPatientMessages(
   patientId: string,

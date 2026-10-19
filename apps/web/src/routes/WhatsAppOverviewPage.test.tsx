@@ -25,10 +25,14 @@ const OVERVIEW: MessagingOverview = {
   date_to: "2026-10-11",
   patients_in_scope: 10,
   messages_sent: 5,
+  patients_messaged: 4,
   replies_received: 3,
+  patients_replied: 3,
   non_responders: 2,
   delivery_failures: 1,
+  patients_with_failures: 1,
   critical_alerts: 1,
+  patients_with_critical_alerts: 1,
   pending_observation_reviews: 4,
   ai_needs_clarification: 1,
   open_message_exceptions: 2,
@@ -108,10 +112,10 @@ describe("WhatsAppOverviewPage", () => {
   it("renders WhatsApp traffic stats, queues and recent messages", async () => {
     renderPage();
 
-    expect(await screen.findByText("Messages sent")).toBeInTheDocument();
-    expect(screen.getByText("Replies received")).toBeInTheDocument();
+    expect(await screen.findByText("Patients messaged")).toBeInTheDocument();
+    expect(screen.getByText("Patients who replied")).toBeInTheDocument();
     expect(screen.getByText("Non-responders")).toBeInTheDocument();
-    expect(screen.getByText("Delivery failures")).toBeInTheDocument();
+    expect(screen.getByText("Patients with failures")).toBeInTheDocument();
 
     expect(screen.getByText("My sugar is 130")).toBeInTheDocument();
     expect(screen.getByText("Morning check-in")).toBeInTheDocument();
@@ -124,7 +128,7 @@ describe("WhatsAppOverviewPage", () => {
   it("refetches with the category filter when it changes", async () => {
     renderPage();
 
-    await screen.findByText("Messages sent");
+    await screen.findByText("Patients messaged");
     fireEvent.change(screen.getByLabelText("Category"), {
       target: { value: "diabetes" },
     });
@@ -139,8 +143,40 @@ describe("WhatsAppOverviewPage", () => {
   it("exposes the doctor filter from the staff directory", async () => {
     renderPage();
 
-    await screen.findByText("Messages sent");
+    await screen.findByText("Patients messaged");
     expect(screen.getByLabelText("Doctor")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Dr. Girish" })).toBeInTheDocument();
+  });
+
+  it("makes each stat card a link to a pre-filtered destination", async () => {
+    renderPage();
+
+    await screen.findByText("Patients messaged");
+    expect(screen.getByRole("link", { name: "View 10 patients in scope" })).toHaveAttribute(
+      "href",
+      "/patients",
+    );
+    expect(
+      screen.getByRole("link", { name: "View the 3 patient conversations" }),
+    ).toHaveAttribute("href", "/inbox");
+    expect(
+      screen.getByRole("link", { name: "View unanswered check-ins in the operations queue" }),
+    ).toHaveAttribute("href", "/queues#awaiting");
+    expect(
+      screen.getByRole("link", { name: "View failed deliveries in the operations queue" }),
+    ).toHaveAttribute("href", "/queues#failures");
+    expect(screen.getByRole("link", { name: "View urgent open alerts" })).toHaveAttribute(
+      "href",
+      "/alerts?status=open&priority=urgent",
+    );
+
+    // The in-scope card carries the active category filter into the patient list.
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "diabetes" } });
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "View 10 patients in scope" })).toHaveAttribute(
+        "href",
+        "/patients?category=diabetes",
+      ),
+    );
   });
 });

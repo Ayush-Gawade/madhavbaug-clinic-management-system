@@ -254,6 +254,7 @@ export interface FollowUpInstance {
   id: string;
   schedule_id: string;
   patient_id: string;
+  patient_name: string | null;
   due_date: string;
   due_at: string;
   sent_at: string | null;
@@ -285,6 +286,8 @@ export interface FollowUpDayCount {
   due_today: number;
   overdue: number;
   done_today: number;
+  patients_due_today: number;
+  patients_overdue: number;
 }
 
 export type MessageDirection = "inbound" | "outbound";
@@ -408,6 +411,7 @@ export interface SafetyRuleCreatePayload {
 export interface Alert {
   id: string;
   patient_id: string;
+  patient_name: string | null;
   observation_id: string | null;
   follow_up_instance_id: string | null;
   rule_id: string | null;
@@ -455,6 +459,8 @@ export interface AlertSummary {
   open_urgent: number;
   open_priority: number;
   open_routine: number;
+  patients_open_total: number;
+  patients_open_urgent: number;
 }
 
 export type AIExtractionModality = "text" | "vision";
@@ -532,14 +538,29 @@ export interface MessagingOverview {
   date_to: string;
   patients_in_scope: number;
   messages_sent: number;
+  patients_messaged: number;
   replies_received: number;
+  patients_replied: number;
   non_responders: number;
   delivery_failures: number;
+  patients_with_failures: number;
   critical_alerts: number;
+  patients_with_critical_alerts: number;
   pending_observation_reviews: number;
   ai_needs_clarification: number;
   open_message_exceptions: number;
   recent_messages: OverviewMessage[];
+}
+
+export interface InboxThread {
+  patient_id: string;
+  patient_name: string | null;
+  latest_message_id: string | null;
+  latest_direction: MessageDirection | null;
+  latest_text_body: string | null;
+  latest_media_mime_type: string | null;
+  latest_at: string | null;
+  inbound_count: number;
 }
 
 export interface AdherenceSummary {

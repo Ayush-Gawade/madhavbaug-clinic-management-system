@@ -1,7 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Inbox } from "lucide-react";
 import { useState } from "react";
 
-import { Badge, EmptyState, ErrorNotice, Loading, Modal } from "@/components/ui";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorNotice,
+  Label,
+  Loading,
+  Modal,
+  Pagination,
+  SelectInput,
+  TextArea,
+} from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { detailSummary, reasonLabel, statusTone } from "@/lib/messageExceptions";
@@ -57,57 +74,56 @@ function ExceptionReviewModal({
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={statusTone(item.status)}>{item.status}</Badge>
-            <span className="text-xs text-slate-500">created {formatDate(item.created_at)}</span>
+            <Badge tone={statusTone(item.status)} dot={item.status === "open"}>
+              {item.status}
+            </Badge>
+            <span className="text-xs text-ink-muted">created {formatDate(item.created_at)}</span>
           </div>
 
-          <p className="text-sm font-medium text-slate-800">{reasonLabel(item.reason)}</p>
+          <p className="rounded-lg bg-surface-sunken px-3.5 py-3 text-sm font-medium text-ink">
+            {reasonLabel(item.reason)}
+          </p>
 
-          <dl className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Details</dt>
-              <dd className="text-slate-700">{detailSummary(item.details)}</dd>
+          <dl className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+                Details
+              </dt>
+              <dd className="mt-0.5 text-sm text-ink-secondary">{detailSummary(item.details)}</dd>
             </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Linked message</dt>
-              <dd className="font-mono text-xs text-slate-600">
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">
+                Linked message
+              </dt>
+              <dd className="mt-0.5 font-mono text-xs text-ink-secondary">
                 {item.message_id ? item.message_id.slice(0, 8) : "—"}
               </dd>
             </div>
           </dl>
 
           {!closed ? (
-            <div className="space-y-3 border-t border-slate-200 pt-3">
+            <div className="space-y-3 border-t border-line pt-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="exception-notes">
-                  Notes
-                </label>
-                <textarea
+                <Label htmlFor="exception-notes">Notes</Label>
+                <TextArea
                   id="exception-notes"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none"
                   placeholder="How was this resolved? (optional)"
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={resolve.isPending}
-                  onClick={() => resolve.mutate()}
-                  className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
-                >
+                <Button disabled={resolve.isPending} onClick={() => resolve.mutate()}>
                   Resolve
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
                   disabled={dismiss.isPending}
                   onClick={() => dismiss.mutate()}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
               {errors.map((error, index) => (
                 <ErrorNotice
@@ -117,7 +133,7 @@ function ExceptionReviewModal({
               ))}
             </div>
           ) : (
-            <p className="border-t border-slate-200 pt-3 text-xs text-slate-500">
+            <p className="border-t border-line pt-3 text-xs text-ink-muted">
               {item.resolution_notes ? `Note: ${item.resolution_notes}` : "No notes recorded."}
             </p>
           )}
@@ -140,100 +156,87 @@ export function MessageExceptionsPage(): JSX.Element {
   const totalPages = exceptions.data ? Math.max(1, Math.ceil(exceptions.data.total / 20)) : 1;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900">Message exceptions</h1>
-        <p className="text-sm text-slate-500">
-          Inbound messages that could not be matched to a patient or follow-up, held for review.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Message exceptions"
+        description="Inbound messages that could not be matched to a patient or follow-up, held for review."
+      />
 
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-800">Review queue</h2>
-          <select
-            aria-label="Filter by status"
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">All statuses</option>
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
+      <Card>
+        <CardHeader
+          title="Review queue"
+          actions={
+            <SelectInput
+              aria-label="Filter by status"
+              className="w-40"
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All statuses</option>
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </SelectInput>
+          }
+        />
 
         {exceptions.isPending ? (
-          <Loading />
+          <SkeletonTable rows={5} cols={5} />
         ) : exceptions.isError ? (
-          <ErrorNotice message="Failed to load message exceptions." />
+          <div className="p-4">
+            <ErrorNotice message="Failed to load message exceptions." />
+          </div>
         ) : !exceptions.data || exceptions.data.items.length === 0 ? (
-          <EmptyState message="No message exceptions for this filter." />
+          <EmptyState
+            icon={<Inbox className="h-5 w-5" />}
+            message="No message exceptions for this filter."
+          />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Reason</th>
-                <th className="px-4 py-3">Details</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[680px]">
+            <THead>
+              <TH>Created</TH>
+              <TH>Reason</TH>
+              <TH>Details</TH>
+              <TH>Status</TH>
+              <TH align="right" />
+            </THead>
             <tbody>
               {exceptions.data.items.map((item: MessageException) => (
-                <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 text-slate-600">{formatDate(item.created_at)}</td>
-                  <td className="px-4 py-3 text-slate-700">{reasonLabel(item.reason)}</td>
-                  <td className="px-4 py-3 text-slate-600">{detailSummary(item.details)}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={statusTone(item.status)}>{item.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setReviewId(item.id)}
-                      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
+                <TR key={item.id}>
+                  <TD className="whitespace-nowrap text-ink-secondary">
+                    {formatDate(item.created_at)}
+                  </TD>
+                  <TD className="font-medium text-ink">{reasonLabel(item.reason)}</TD>
+                  <TD className="text-ink-secondary">{detailSummary(item.details)}</TD>
+                  <TD>
+                    <Badge tone={statusTone(item.status)} dot={item.status === "open"}>
+                      {item.status}
+                    </Badge>
+                  </TD>
+                  <TD align="right">
+                    <Button variant="secondary" size="sm" onClick={() => setReviewId(item.id)}>
                       Review
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
 
-        <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
-          <span>
-            Page {page} of {totalPages} · {exceptions.data?.total ?? 0} total
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={exceptions.data?.total ?? 0}
+          itemLabel="exceptions"
+          onPageChange={setPage}
+        />
+      </Card>
 
       {reviewId ? (
         <ExceptionReviewModal exceptionId={reviewId} onClose={() => setReviewId(null)} />

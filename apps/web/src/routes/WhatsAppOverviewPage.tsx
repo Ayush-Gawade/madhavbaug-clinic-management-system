@@ -1,15 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
+import { CalendarDays, MessageCircle, Send, TriangleAlert, UserX, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { MediaAttachment } from "@/components/MediaAttachment";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { StatCard } from "@/components/StatCard";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
 import {
   Badge,
   Card,
+  CardHeader,
   EmptyState,
   ErrorNotice,
   Label,
-  Loading,
   SelectInput,
   TextInput,
 } from "@/components/ui";
@@ -35,28 +40,6 @@ function todayLocal(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function StatCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: number | undefined;
-  tone?: "default" | "warning" | "danger";
-}): JSX.Element {
-  const tones = {
-    default: "text-slate-900",
-    warning: "text-amber-600",
-    danger: "text-red-600",
-  };
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${tones[tone]}`}>{value ?? "—"}</p>
-    </div>
-  );
-}
-
 function typeLabel(messageType: string): string {
   return messageType.charAt(0).toUpperCase() + messageType.slice(1).replace("_", " ");
 }
@@ -66,55 +49,53 @@ function RecentMessages({ messages }: { messages: OverviewMessage[] }): JSX.Elem
     return <EmptyState message="No WhatsApp activity in the selected range." />;
   }
   return (
-    <table className="w-full text-left text-sm">
-      <thead>
-        <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-          <th className="px-4 py-3">Time</th>
-          <th className="px-4 py-3">Patient</th>
-          <th className="px-4 py-3">Direction</th>
-          <th className="px-4 py-3">Type</th>
-          <th className="px-4 py-3">Message</th>
-          <th className="px-4 py-3">Delivery</th>
-        </tr>
-      </thead>
+    <Table minClassName="min-w-[760px]">
+      <THead>
+        <TH>Time</TH>
+        <TH>Patient</TH>
+        <TH>Direction</TH>
+        <TH>Type</TH>
+        <TH>Message</TH>
+        <TH>Delivery</TH>
+      </THead>
       <tbody>
         {messages.map((message) => (
-          <tr key={message.id} className="border-b border-slate-100 last:border-0">
-            <td className="px-4 py-3 text-slate-600">
+          <TR key={message.id}>
+            <TD className="whitespace-nowrap text-ink-secondary">
               {message.occurred_at ? formatDate(message.occurred_at) : "—"}
-            </td>
-            <td className="px-4 py-3 text-slate-800">
+            </TD>
+            <TD className="font-medium text-ink">
               {message.patient_name ?? message.patient_id?.slice(0, 8) ?? "unknown"}
-            </td>
-            <td className="px-4 py-3">
-              <Badge tone={message.direction === "inbound" ? "green" : "brand"}>
+            </TD>
+            <TD>
+              <Badge tone={message.direction === "inbound" ? "green" : "brand"} dot>
                 {message.direction}
               </Badge>
-            </td>
-            <td className="px-4 py-3 text-slate-600">{typeLabel(message.message_type)}</td>
-            <td className="max-w-72 px-4 py-3 text-slate-700">
+            </TD>
+            <TD className="text-ink-secondary">{typeLabel(message.message_type)}</TD>
+            <TD className="max-w-72">
               <div className="flex items-center gap-3">
                 <MediaAttachment
                   mediaUrl={message.media_url}
                   mediaMimeType={message.media_mime_type}
                   compact
                 />
-                <span className="truncate">{message.text_body ?? "—"}</span>
+                <span className="truncate text-ink-secondary">{message.text_body ?? "—"}</span>
               </div>
-            </td>
-            <td className="px-4 py-3">
+            </TD>
+            <TD>
               {message.delivery_status ? (
-                <Badge tone={message.delivery_status === "failed" ? "red" : "slate"}>
+                <Badge tone={message.delivery_status === "failed" ? "red" : "slate"} dot={message.delivery_status === "failed"}>
                   {message.delivery_status}
                 </Badge>
               ) : (
-                "—"
+                <span className="text-ink-faint">—</span>
               )}
-            </td>
-          </tr>
+            </TD>
+          </TR>
         ))}
       </tbody>
-    </table>
+    </Table>
   );
 }
 
@@ -158,150 +139,225 @@ export function WhatsAppOverviewPage(): JSX.Element {
     (data?.ai_needs_clarification ?? 0) +
     (data?.open_message_exceptions ?? 0);
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900">WhatsApp overview</h1>
-          <p className="text-sm text-slate-500">
-            Messages sent, replies, non-responders, delivery failures and review queues for the
-            selected scope.
-          </p>
-        </div>
-      </div>
+  // Carry the active scope filters into the patient list so a card click opens
+  // the same population it is summarising.
+  const patientsScopeQuery = new URLSearchParams();
+  if (category) patientsScopeQuery.set("category", category);
+  if (status) patientsScopeQuery.set("status", status);
+  const patientsScopeTo = `/patients${
+    patientsScopeQuery.toString() ? `?${patientsScopeQuery.toString()}` : ""
+  }`;
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <Label htmlFor="overview-from">From</Label>
-          <TextInput
-            id="overview-from"
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-          />
-        </div>
-        <div>
-          <Label htmlFor="overview-to">To</Label>
-          <TextInput
-            id="overview-to"
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-          />
-        </div>
-        <div>
-          <Label htmlFor="overview-category">Category</Label>
-          <SelectInput
-            id="overview-category"
-            className="w-44"
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          >
-            <option value="">All categories</option>
-            {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectInput>
-        </div>
-        {!users.isError && clinicians.length > 0 ? (
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="WhatsApp overview"
+        description="Messages sent, replies, non-responders, delivery failures and review queues for the selected scope."
+      />
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-end gap-3">
           <div>
-            <Label htmlFor="overview-doctor">Doctor</Label>
+            <Label htmlFor="overview-from">From</Label>
+            <TextInput
+              id="overview-from"
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="overview-to">To</Label>
+            <TextInput
+              id="overview-to"
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="overview-category">Category</Label>
             <SelectInput
-              id="overview-doctor"
-              className="w-52"
-              value={doctorId}
-              onChange={(event) => setDoctorId(event.target.value)}
+              id="overview-category"
+              className="w-44"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
             >
-              <option value="">All clinicians</option>
-              {clinicians.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name}
+              <option value="">All categories</option>
+              {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
                 </option>
               ))}
             </SelectInput>
           </div>
-        ) : null}
-        <div>
-          <Label htmlFor="overview-status">Status</Label>
-          <SelectInput
-            id="overview-status"
-            className="w-36"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">All statuses</option>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </SelectInput>
+          {!users.isError && clinicians.length > 0 ? (
+            <div>
+              <Label htmlFor="overview-doctor">Doctor</Label>
+              <SelectInput
+                id="overview-doctor"
+                className="w-52"
+                value={doctorId}
+                onChange={(event) => setDoctorId(event.target.value)}
+              >
+                <option value="">All clinicians</option>
+                {clinicians.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name}
+                  </option>
+                ))}
+              </SelectInput>
+            </div>
+          ) : null}
+          <div>
+            <Label htmlFor="overview-status">Status</Label>
+            <SelectInput
+              id="overview-status"
+              className="w-36"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="">All statuses</option>
+              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </SelectInput>
+          </div>
         </div>
-      </div>
+      </Card>
 
       {overview.isPending ? (
-        <Loading />
+        <SkeletonTable rows={6} cols={6} />
       ) : overview.isError ? (
         <ErrorNotice message="Failed to load the WhatsApp overview." />
       ) : data ? (
-        <>
+        <div className="space-y-6 animate-fade-in">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <StatCard label="Patients in scope" value={data.patients_in_scope} />
-            <StatCard label="Messages sent" value={data.messages_sent} />
-            <StatCard label="Replies received" value={data.replies_received} />
-            <StatCard label="Non-responders" value={data.non_responders} tone="warning" />
-            <StatCard label="Delivery failures" value={data.delivery_failures} tone="danger" />
-            <StatCard label="Critical alerts" value={data.critical_alerts} tone="danger" />
+            <StatCard
+              label="Patients in scope"
+              icon={<Users className="h-4 w-4" />}
+              value={data.patients_in_scope}
+              to={patientsScopeTo}
+              ariaLabel={`View ${data.patients_in_scope} patients in scope`}
+            />
+            <StatCard
+              label="Patients messaged"
+              icon={<Send className="h-4 w-4" />}
+              tone="brand"
+              value={data.patients_messaged}
+              hint={`${data.messages_sent} messages sent`}
+              to="/follow-ups"
+              ariaLabel={`View the ${data.messages_sent} sent check-ins`}
+            />
+            <StatCard
+              label="Patients who replied"
+              icon={<MessageCircle className="h-4 w-4" />}
+              value={data.patients_replied}
+              hint={`${data.replies_received} replies received`}
+              to="/inbox"
+              ariaLabel={`View the ${data.patients_replied} patient conversations`}
+            />
+            <StatCard
+              label="Non-responders"
+              icon={<UserX className="h-4 w-4" />}
+              tone="warning"
+              value={data.non_responders}
+              hint="no reply in window"
+              to="/queues#awaiting"
+              ariaLabel="View unanswered check-ins in the operations queue"
+            />
+            <StatCard
+              label="Patients with failures"
+              icon={<TriangleAlert className="h-4 w-4" />}
+              tone="danger"
+              value={data.patients_with_failures}
+              hint={`${data.delivery_failures} failed messages`}
+              to="/queues#failures"
+              ariaLabel="View failed deliveries in the operations queue"
+            />
+            <StatCard
+              label="Patients with critical alerts"
+              icon={<TriangleAlert className="h-4 w-4" />}
+              tone="danger"
+              value={data.patients_with_critical_alerts}
+              hint={`${data.critical_alerts} urgent alerts`}
+              to="/alerts?status=open&priority=urgent"
+              ariaLabel="View urgent open alerts"
+            />
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-800">Review queues</h2>
-            <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader title="Review queues" description="Jump to the right workspace" />
+            <div className="grid gap-3 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <Link
                 to="/alerts"
-                className="rounded-md border border-slate-200 p-3 hover:border-brand-300 hover:bg-brand-50"
+                className="group rounded-xl border border-line bg-surface p-4 shadow-hairline transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover dark:hover:border-brand-700"
               >
-                <p className="font-medium text-slate-800">Open alerts</p>
-                <p className="text-2xl font-semibold text-slate-900">{data.critical_alerts} urgent</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Open alerts
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-ink">
+                  {data.critical_alerts}{" "}
+                  <span className="text-sm font-semibold text-red-600 dark:text-red-400">urgent</span>
+                </p>
               </Link>
               <Link
                 to="/message-exceptions"
-                className="rounded-md border border-slate-200 p-3 hover:border-brand-300 hover:bg-brand-50"
+                className="group rounded-xl border border-line bg-surface p-4 shadow-hairline transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover dark:hover:border-brand-700"
               >
-                <p className="font-medium text-slate-800">Message exceptions</p>
-                <p className="text-2xl font-semibold text-slate-900">
-                  {data.open_message_exceptions} open
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Message exceptions
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-ink">
+                  {data.open_message_exceptions}{" "}
+                  <span className="text-sm font-semibold text-ink-muted">open</span>
                 </p>
               </Link>
               <Link
                 to="/follow-ups"
-                className="rounded-md border border-slate-200 p-3 hover:border-brand-300 hover:bg-brand-50"
+                className="group rounded-xl border border-line bg-surface p-4 shadow-hairline transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover dark:hover:border-brand-700"
               >
-                <p className="font-medium text-slate-800">Follow-up queue</p>
-                <p className="text-2xl font-semibold text-slate-900">{data.non_responders} waiting</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Follow-up queue
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-ink">
+                  {data.non_responders}{" "}
+                  <span className="text-sm font-semibold text-ink-muted">waiting</span>
+                </p>
               </Link>
               <Link
                 to="/analytics"
-                className="rounded-md border border-slate-200 p-3 hover:border-brand-300 hover:bg-brand-50"
+                className="group rounded-xl border border-line bg-surface p-4 shadow-hairline transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card-hover dark:hover:border-brand-700"
               >
-                <p className="font-medium text-slate-800">Pending reviews</p>
-                <p className="text-2xl font-semibold text-slate-900">{pendingReviews} pending</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  Pending reviews
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-ink">
+                  {pendingReviews}{" "}
+                  <span className="text-sm font-semibold text-ink-muted">pending</span>
+                </p>
+                <p className="mt-1 text-xs text-ink-muted">
                   {data.pending_observation_reviews} observation · {data.ai_needs_clarification} AI
                 </p>
               </Link>
             </div>
-          </div>
+          </Card>
 
           <Card>
-            <div className="border-b border-slate-200 px-4 py-3">
-              <h2 className="text-sm font-semibold text-slate-800">Recent message activity</h2>
-            </div>
+            <CardHeader
+              title="Recent message activity"
+              actions={
+                <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {data.date_from} → {data.date_to}
+                </span>
+              }
+            />
             <RecentMessages messages={data.recent_messages} />
           </Card>
-        </>
+        </div>
       ) : null}
     </div>
   );

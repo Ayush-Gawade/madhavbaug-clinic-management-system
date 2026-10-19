@@ -1,8 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search, UserPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
-import { Badge, Button, Card, EmptyState, ErrorNotice, Label, Loading, Modal, SelectInput, TextInput } from "@/components/ui";
+import { Avatar } from "@/components/Avatar";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
+import { toast } from "@/components/Toast";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Label,
+  Modal,
+  Pagination,
+  SelectInput,
+  TextInput,
+} from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { createPatient, listPatients } from "@/lib/patients";
 import type { PatientCategoryType, PatientStatus } from "@/lib/types";
@@ -49,6 +66,7 @@ function RegisterPatientModal({
       setCategories([]);
       setError(null);
       onClose();
+      toast.success("Patient registered", { description: `${fullName} was added to the clinic.` });
       void queryClient.invalidateQueries({ queryKey: ["patients"] });
     },
     onError: (err) => {
@@ -108,10 +126,10 @@ function RegisterPatientModal({
                 key={category}
                 type="button"
                 onClick={() => toggleCategory(category)}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset transition ${
                   categories.includes(category)
-                    ? "bg-brand-600 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    ? "bg-brand-600 text-white ring-brand-600"
+                    : "bg-surface text-ink-secondary ring-line-strong hover:bg-surface-sunken"
                 }`}
               >
                 {CATEGORY_LABELS[category]}
@@ -120,11 +138,11 @@ function RegisterPatientModal({
           </div>
         </div>
         {error ? <ErrorNotice message={error} /> : null}
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={onClose}>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={mutation.isPending}>
+          <Button type="submit" loading={mutation.isPending}>
             {mutation.isPending ? "Saving…" : "Register"}
           </Button>
         </div>
@@ -134,9 +152,18 @@ function RegisterPatientModal({
 }
 
 export function PatientsPage(): JSX.Element {
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string>("");
-  const [status, setStatus] = useState<string>("");
+  // Seed the filters from the URL so cards elsewhere (e.g. the WhatsApp
+  // overview) can deep-link into a pre-filtered patient list.
+  const [searchParams] = useSearchParams();
+  const initialCategory = searchParams.get("category") ?? "";
+  const initialStatus = searchParams.get("status") ?? "";
+  const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+  const [category, setCategory] = useState<string>(
+    () => (initialCategory in CATEGORY_LABELS ? initialCategory : ""),
+  );
+  const [status, setStatus] = useState<string>(
+    () => (["active", "inactive", "archived"].includes(initialStatus) ? initialStatus : ""),
+  );
   const [page, setPage] = useState(1);
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -154,17 +181,22 @@ export function PatientsPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Patients</h1>
-          <p className="text-sm text-slate-500">Register, search and open patient records.</p>
-        </div>
-        <Button onClick={() => setRegisterOpen(true)}>Register patient</Button>
-      </div>
+      <PageHeader
+        title="Patients"
+        description="Register, search and open patient records."
+        actions={
+          <Button onClick={() => setRegisterOpen(true)}>
+            <UserPlus className="h-4 w-4" />
+            Register patient
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-52 flex-1">
+        <div className="relative min-w-56 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
           <TextInput
+            className="pl-9"
             placeholder="Search by name, ID or phone…"
             value={search}
             onChange={(event) => {
@@ -207,36 +239,40 @@ export function PatientsPage(): JSX.Element {
 
       <Card>
         {isPending ? (
-          <Loading />
+          <SkeletonTable rows={8} cols={5} />
         ) : isError ? (
-          <ErrorNotice message={error instanceof Error ? error.message : "Failed to load patients."} />
+          <div className="p-4">
+            <ErrorNotice message={error instanceof Error ? error.message : "Failed to load patients."} />
+          </div>
         ) : !data || data.items.length === 0 ? (
           <EmptyState message="No patients match the current filters." />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">Categories</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[720px]">
+            <THead>
+              <TH>ID</TH>
+              <TH>Name</TH>
+              <TH>Phone</TH>
+              <TH>Categories</TH>
+              <TH>Status</TH>
+            </THead>
             <tbody>
               {data.items.map((patient) => (
-                <tr key={patient.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{patient.internal_id}</td>
-                  <td className="px-4 py-3">
-                    <Link to={`/patients/${patient.id}`} className="font-medium text-brand-700 hover:underline">
+                <TR key={patient.id}>
+                  <TD className="font-mono text-xs text-ink-muted">{patient.internal_id}</TD>
+                  <TD>
+                    <Link
+                      to={`/patients/${patient.id}`}
+                      className="flex items-center gap-3 font-semibold text-ink transition hover:text-brand-700 dark:hover:text-brand-300"
+                    >
+                      <Avatar name={patient.full_name} size="sm" />
                       {patient.full_name}
                     </Link>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{patient.phone_number ?? "—"}</td>
-                  <td className="px-4 py-3">
+                  </TD>
+                  <TD className="text-ink-secondary">{patient.phone_number ?? "—"}</TD>
+                  <TD>
                     <div className="flex flex-wrap gap-1">
                       {patient.categories.length === 0 ? (
-                        <span className="text-slate-400">—</span>
+                        <span className="text-ink-faint">—</span>
                       ) : (
                         patient.categories.map((categoryItem) => (
                           <Badge key={categoryItem.id} tone="brand">
@@ -245,32 +281,28 @@ export function PatientsPage(): JSX.Element {
                         ))
                       )}
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={STATUS_TONES[patient.status]}>{patient.status}</Badge>
-                  </td>
-                </tr>
+                  </TD>
+                  <TD>
+                    <Badge tone={STATUS_TONES[patient.status]} dot>
+                      {patient.status}
+                    </Badge>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
-      </Card>
 
-      {data && data.pages > 1 ? (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">
-            Page {data.page} of {data.pages} · {data.total} patients
-          </span>
-          <div className="flex gap-2">
-            <Button variant="ghost" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
-              Previous
-            </Button>
-            <Button variant="ghost" disabled={page >= data.pages} onClick={() => setPage((current) => current + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      ) : null}
+        {data && data.pages > 1 ? (
+          <Pagination
+            page={data.page}
+            totalPages={data.pages}
+            total={data.total}
+            itemLabel="patients"
+            onPageChange={setPage}
+          />
+        ) : null}
+      </Card>
 
       <RegisterPatientModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
     </div>

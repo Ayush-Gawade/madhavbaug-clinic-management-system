@@ -1,7 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, TriangleAlert } from "lucide-react";
 import { useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
-import { Badge, EmptyState, ErrorNotice, Loading, Modal } from "@/components/ui";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { StatCard } from "@/components/StatCard";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
+import { toast } from "@/components/Toast";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorNotice,
+  Label,
+  Loading,
+  Modal,
+  Pagination,
+  SelectInput,
+  TextArea,
+} from "@/components/ui";
 import {
   acknowledgeAlert,
   createSafetyRule,
@@ -15,6 +35,7 @@ import {
   resolveAlert,
 } from "@/lib/alerts";
 import { ApiError } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import type {
   AlertPriority,
   AlertStatus,
@@ -41,34 +62,26 @@ const STATUS_TONE: Record<AlertStatus, "slate" | "green" | "amber" | "red"> = {
   dismissed: "slate",
 };
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone?: string }): JSX.Element {
+function ActionHistory({
+  entries,
+}: {
+  entries: { id: string; action_type: string; to_status: string | null; occurred_at: string; notes: string | null }[];
+}): JSX.Element {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-2xl font-semibold ${
-          tone === "red" ? "text-red-600" : tone === "amber" ? "text-amber-600" : "text-slate-900"
-        }`}
-      >
-        {value}
+    <div className="border-t border-line pt-4">
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+        Action history
       </p>
-    </div>
-  );
-}
-
-function ActionHistory({ entries }: { entries: { id: string; action_type: string; to_status: string | null; occurred_at: string; notes: string | null }[] }): JSX.Element {
-  return (
-    <div className="border-t border-slate-200 pt-3">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Action history</p>
       {entries.length === 0 ? (
-        <p className="text-sm text-slate-400">No actions recorded yet.</p>
+        <p className="text-sm text-ink-muted">No actions recorded yet.</p>
       ) : (
-        <ul className="space-y-1 text-sm text-slate-700">
+        <ul className="space-y-1.5 text-sm text-ink-secondary">
           {entries.map((entry) => (
-            <li key={entry.id}>
-              <span className="font-medium">{entry.action_type}</span>
-              {entry.to_status ? ` → ${entry.to_status}` : ""} · {new Date(entry.occurred_at).toLocaleString("en-IN")}
-              {entry.notes ? ` · ${entry.notes}` : ""}
+            <li key={entry.id} className="flex flex-wrap items-center gap-1.5">
+              <Badge tone="slate">{entry.action_type}</Badge>
+              {entry.to_status ? <span>→ {entry.to_status}</span> : null}
+              <span className="text-ink-muted">{formatDate(entry.occurred_at)}</span>
+              {entry.notes ? <span className="text-ink-muted">· {entry.notes}</span> : null}
             </li>
           ))}
         </ul>
@@ -122,85 +135,87 @@ function AlertReviewModal({ alertId, onClose }: { alertId: string; onClose: () =
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={PRIORITY_TONE[alert.priority]}>{alert.priority}</Badge>
+            <Badge tone={PRIORITY_TONE[alert.priority]} dot>
+              {alert.priority}
+            </Badge>
             <Badge tone={STATUS_TONE[alert.status]}>{alert.status}</Badge>
-            <span className="text-xs text-slate-500">
-              created {new Date(alert.created_at).toLocaleString("en-IN")}
-            </span>
+            <span className="text-xs text-ink-muted">created {formatDate(alert.created_at)}</span>
           </div>
 
-          <p className="text-sm text-slate-800">{alert.reason}</p>
+          <p className="rounded-lg bg-surface-sunken px-3.5 py-3 text-sm font-medium text-ink">
+            {alert.reason}
+          </p>
 
-          <dl className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Patient</dt>
-              <dd className="font-mono text-xs text-slate-600">{alert.patient_id.slice(0, 8)}</dd>
+          <dl className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">Patient</dt>
+              <dd className="mt-0.5 text-sm font-medium text-ink">
+                <Link
+                  to={`/patients/${alert.patient_id}`}
+                  className="underline-offset-2 hover:text-brand-700 hover:underline dark:hover:text-brand-300"
+                >
+                  {alert.patient_name ?? alert.patient_id.slice(0, 8)}
+                </Link>
+              </dd>
             </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Metric</dt>
-              <dd className="text-slate-700">
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">Metric</dt>
+              <dd className="mt-0.5 text-sm text-ink">
                 {alert.metric ?? "—"}
                 {alert.value ? ` · ${alert.value} ${alert.unit ?? ""}` : ""}
               </dd>
             </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Rule version</dt>
-              <dd className="text-slate-700">{alert.rule_version ?? "—"}</dd>
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">Rule version</dt>
+              <dd className="mt-0.5 text-sm text-ink">{alert.rule_version ?? "—"}</dd>
             </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Type</dt>
-              <dd className="text-slate-700">{alert.alert_type}</dd>
+            <div className="rounded-lg border border-line px-3.5 py-2.5">
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">Type</dt>
+              <dd className="mt-0.5 text-sm capitalize text-ink">{alert.alert_type}</dd>
             </div>
           </dl>
 
           {!closed ? (
-            <div className="space-y-3 border-t border-slate-200 pt-3">
+            <div className="space-y-3 border-t border-line pt-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="alert-notes">
-                  Notes
-                </label>
-                <textarea
+                <Label htmlFor="alert-notes">Notes</Label>
+                <TextArea
                   id="alert-notes"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   rows={2}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none"
                   placeholder="Clinical note (optional)"
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   disabled={alert.status === "acknowledged" || ack.isPending}
                   onClick={() => ack.mutate()}
-                  className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
                 >
                   Acknowledge
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
                   disabled={escalate.isPending}
                   onClick={() => escalate.mutate()}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
                   Escalate
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
                   disabled={resolve.isPending}
                   onClick={() => resolve.mutate()}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
                   Resolve
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="secondary"
                   disabled={dismiss.isPending}
                   onClick={() => dismiss.mutate()}
-                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
               {errors.map((error, index) => (
                 <ErrorNotice
@@ -233,6 +248,7 @@ function NewRuleModal({ open, onClose }: { open: boolean; onClose: () => void })
   const create = useMutation({
     mutationFn: () => createSafetyRule(payload),
     onSuccess: () => {
+      toast.success("Safety rule published");
       void queryClient.invalidateQueries({ queryKey: ["safety-rules"] });
       onClose();
     },
@@ -242,120 +258,96 @@ function NewRuleModal({ open, onClose }: { open: boolean; onClose: () => void })
 
   return (
     <Modal open onClose={onClose} title="New safety rule">
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-key">
-            Rule key
-          </label>
+          <Label htmlFor="rule-key">Rule key</Label>
           <input
             id="rule-key"
             value={payload.rule_key}
             onChange={(event) => setPayload({ ...payload, rule_key: event.target.value })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-hairline focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
             placeholder="e.g. glucose_high"
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-metric">
-              Metric
-            </label>
-            <select
+            <Label htmlFor="rule-metric">Metric</Label>
+            <SelectInput
               id="rule-metric"
               value={payload.metric}
               onChange={(event) =>
                 setPayload({ ...payload, metric: event.target.value as RuleMetric })
               }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               {METRIC_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
               ))}
-            </select>
+            </SelectInput>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-comparator">
-              Comparator
-            </label>
-            <select
+            <Label htmlFor="rule-comparator">Comparator</Label>
+            <SelectInput
               id="rule-comparator"
               value={payload.comparator}
               onChange={(event) => setPayload({ ...payload, comparator: event.target.value as RuleComparator })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
               {COMPARATOR_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
               ))}
-            </select>
+            </SelectInput>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-threshold">
-              Threshold
-            </label>
+            <Label htmlFor="rule-threshold">Threshold</Label>
             <input
               id="rule-threshold"
               value={String(payload.threshold)}
               inputMode="decimal"
               onChange={(event) => setPayload({ ...payload, threshold: event.target.value })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-hairline focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-unit">
-              Unit
-            </label>
+            <Label htmlFor="rule-unit">Unit</Label>
             <input
               id="rule-unit"
               value={payload.unit}
               onChange={(event) => setPayload({ ...payload, unit: event.target.value })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-hairline focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
             />
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="rule-priority">
-            Priority
-          </label>
-          <select
+          <Label htmlFor="rule-priority">Priority</Label>
+          <SelectInput
             id="rule-priority"
             value={payload.priority}
             onChange={(event) => setPayload({ ...payload, priority: event.target.value as AlertPriority })}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
             {PRIORITY_OPTIONS.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>
             ))}
-          </select>
+          </SelectInput>
         </div>
         {create.isError ? (
           <ErrorNotice
             message={create.error instanceof ApiError ? create.error.message : "Failed to create rule."}
           />
         ) : null}
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
-          >
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            disabled={create.isPending}
-            onClick={() => create.mutate()}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-          >
+          </Button>
+          <Button disabled={create.isPending} loading={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? "Publishing…" : "Publish rule"}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -364,8 +356,24 @@ function NewRuleModal({ open, onClose }: { open: boolean; onClose: () => void })
 
 export function AlertsPage(): JSX.Element {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<AlertStatus | "">("open");
-  const [priority, setPriority] = useState<AlertPriority | "">("");
+  // Seed the filters from the URL so cards elsewhere (Dashboard, WhatsApp
+  // overview) can deep-link into a pre-filtered alert list.
+  const [searchParams] = useSearchParams();
+  const initialStatus = searchParams.get("status") ?? "";
+  const initialPriority = searchParams.get("priority") ?? "";
+  const [status, setStatus] = useState<AlertStatus | "">(() => {
+    // Keep the original default (open) when no filter is supplied, otherwise
+    // honour a valid deep-linked status.
+    if (initialStatus === "") return "open";
+    return (STATUS_OPTIONS as string[]).includes(initialStatus)
+      ? (initialStatus as AlertStatus)
+      : "open";
+  });
+  const [priority, setPriority] = useState<AlertPriority | "">(() =>
+    (PRIORITY_OPTIONS as string[]).includes(initialPriority)
+      ? (initialPriority as AlertPriority)
+      : "",
+  );
   const [page, setPage] = useState(1);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const [showNewRule, setShowNewRule] = useState(false);
@@ -385,199 +393,212 @@ export function AlertsPage(): JSX.Element {
 
   const deactivate = useMutation({
     mutationFn: deactivateSafetyRule,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["safety-rules"] }),
+    onSuccess: () => {
+      toast.success("Rule deactivated");
+      void queryClient.invalidateQueries({ queryKey: ["safety-rules"] });
+    },
   });
 
   const totalPages = alerts.data ? Math.max(1, Math.ceil(alerts.data.total / 20)) : 1;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900">Alerts &amp; review</h1>
-        <p className="text-sm text-slate-500">
-          Rule-driven clinical alerts awaiting staff review and disposition.
-        </p>
+    <div className="space-y-6">
+      <PageHeader
+        title="Alerts & review"
+        description="Rule-driven clinical alerts awaiting staff review and disposition."
+      />
+
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard
+          label="Open"
+          icon={<TriangleAlert className="h-4 w-4" />}
+          isLoading={summary.isPending}
+          value={summary.data?.open_total ?? "—"}
+        />
+        <StatCard
+          label="Urgent open"
+          icon={<TriangleAlert className="h-4 w-4" />}
+          tone="danger"
+          isLoading={summary.isPending}
+          value={summary.data?.open_urgent ?? "—"}
+        />
+        <StatCard
+          label="Priority open"
+          icon={<TriangleAlert className="h-4 w-4" />}
+          tone="warning"
+          isLoading={summary.isPending}
+          value={summary.data?.open_priority ?? "—"}
+        />
+        <StatCard
+          label="Acknowledged"
+          isLoading={summary.isPending}
+          value={summary.data?.acknowledged ?? "—"}
+        />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Open" value={summary.data?.open_total ?? 0} />
-        <StatCard label="Urgent open" value={summary.data?.open_urgent ?? 0} tone="red" />
-        <StatCard label="Priority open" value={summary.data?.open_priority ?? 0} tone="amber" />
-        <StatCard label="Acknowledged" value={summary.data?.acknowledged ?? 0} />
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-800">Review queue</h2>
-          <div className="flex gap-2">
-            <select
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as AlertStatus | "");
-                setPage(1);
-              }}
-            >
-              <option value="">All statuses</option>
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <select
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              value={priority}
-              onChange={(event) => {
-                setPriority(event.target.value as AlertPriority | "");
-                setPage(1);
-              }}
-            >
-              <option value="">All priorities</option>
-              {PRIORITY_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+      <Card>
+        <CardHeader
+          title="Review queue"
+          actions={
+            <div className="flex gap-2">
+              <SelectInput
+                aria-label="Filter by status"
+                className="w-40"
+                value={status}
+                onChange={(event) => {
+                  setStatus(event.target.value as AlertStatus | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">All statuses</option>
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </SelectInput>
+              <SelectInput
+                aria-label="Filter by priority"
+                className="w-40"
+                value={priority}
+                onChange={(event) => {
+                  setPriority(event.target.value as AlertPriority | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">All priorities</option>
+                {PRIORITY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </SelectInput>
+            </div>
+          }
+        />
 
         {alerts.isPending ? (
-          <Loading />
+          <SkeletonTable rows={6} cols={6} />
         ) : alerts.isError ? (
-          <ErrorNotice message="Failed to load alerts." />
+          <div className="p-4">
+            <ErrorNotice message="Failed to load alerts." />
+          </div>
         ) : !alerts.data || alerts.data.items.length === 0 ? (
-          <EmptyState message="No alerts for this filter." />
+          <EmptyState
+            icon={<TriangleAlert className="h-5 w-5" />}
+            message="No alerts for this filter."
+          />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Created</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Alert</th>
-                <th className="px-4 py-3">Priority</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[760px]">
+            <THead>
+              <TH>Created</TH>
+              <TH>Patient</TH>
+              <TH>Alert</TH>
+              <TH>Priority</TH>
+              <TH>Status</TH>
+              <TH align="right" />
+            </THead>
             <tbody>
               {alerts.data.items.map((alert) => (
-                <tr key={alert.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 text-slate-600">
-                    {new Date(alert.created_at).toLocaleString("en-IN")}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                    {alert.patient_id.slice(0, 8)}
-                  </td>
-                  <td className="max-w-md px-4 py-3 text-slate-700">{alert.reason}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={PRIORITY_TONE[alert.priority]}>{alert.priority}</Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={STATUS_TONE[alert.status]}>{alert.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setReviewId(alert.id)}
-                      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                <TR key={alert.id}>
+                  <TD className="whitespace-nowrap text-ink-secondary">
+                    {formatDate(alert.created_at)}
+                  </TD>
+                  <TD className="font-medium text-ink">
+                    <Link
+                      to={`/patients/${alert.patient_id}`}
+                      className="underline-offset-2 hover:text-brand-700 hover:underline dark:hover:text-brand-300"
                     >
+                      {alert.patient_name ?? alert.patient_id.slice(0, 8)}
+                    </Link>
+                  </TD>
+                  <TD className="max-w-md text-ink-secondary">{alert.reason}</TD>
+                  <TD>
+                    <Badge tone={PRIORITY_TONE[alert.priority]} dot>
+                      {alert.priority}
+                    </Badge>
+                  </TD>
+                  <TD>
+                    <Badge tone={STATUS_TONE[alert.status]}>{alert.status}</Badge>
+                  </TD>
+                  <TD align="right">
+                    <Button variant="secondary" size="sm" onClick={() => setReviewId(alert.id)}>
                       Review
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
 
-        <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
-          <span>
-            Page {page} of {totalPages} · {alerts.data?.total ?? 0} total
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={alerts.data?.total ?? 0}
+          itemLabel="alerts"
+          onPageChange={setPage}
+        />
+      </Card>
 
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-800">Safety rules</h2>
-            <p className="text-xs text-slate-500">
-              Deterministic thresholds. Publishing a change creates a new version.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowNewRule(true)}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-          >
-            New rule
-          </button>
-        </div>
+      <Card>
+        <CardHeader
+          title="Safety rules"
+          description="Deterministic thresholds. Publishing a change creates a new version."
+          actions={
+            <Button size="sm" onClick={() => setShowNewRule(true)}>
+              <Plus className="h-4 w-4" />
+              New rule
+            </Button>
+          }
+        />
 
         {rules.isPending ? (
-          <Loading />
+          <SkeletonTable rows={4} cols={5} />
         ) : rules.isError ? (
-          <ErrorNotice message="Failed to load safety rules." />
+          <div className="p-4">
+            <ErrorNotice message="Failed to load safety rules." />
+          </div>
         ) : !rules.data || rules.data.length === 0 ? (
           <EmptyState message="No active safety rules configured." />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Key</th>
-                <th className="px-4 py-3">Version</th>
-                <th className="px-4 py-3">Condition</th>
-                <th className="px-4 py-3">Priority</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[640px]">
+            <THead>
+              <TH>Key</TH>
+              <TH>Version</TH>
+              <TH>Condition</TH>
+              <TH>Priority</TH>
+              <TH align="right" />
+            </THead>
             <tbody>
               {rules.data.map((rule) => (
-                <tr key={rule.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-medium text-slate-800">{rule.rule_key}</td>
-                  <td className="px-4 py-3 text-slate-600">v{rule.version}</td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {rule.metric} {rule.comparator} {rule.threshold} {rule.unit}
-                  </td>
-                  <td className="px-4 py-3">
+                <TR key={rule.id}>
+                  <TD className="font-medium text-ink">{rule.rule_key}</TD>
+                  <TD className="text-ink-secondary">v{rule.version}</TD>
+                  <TD className="text-ink-secondary">
+                    <code className="rounded bg-surface-sunken px-1.5 py-0.5 text-xs">
+                      {rule.metric} {rule.comparator} {rule.threshold} {rule.unit}
+                    </code>
+                  </TD>
+                  <TD>
                     <Badge tone={PRIORITY_TONE[rule.priority]}>{rule.priority}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
+                  </TD>
+                  <TD align="right">
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       disabled={deactivate.isPending}
                       onClick={() => deactivate.mutate(rule.id)}
-                      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:opacity-50"
                     >
                       Deactivate
-                    </button>
-                  </td>
-                </tr>
+                    </Button>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
-      </div>
+      </Card>
 
       {reviewId ? <AlertReviewModal alertId={reviewId} onClose={() => setReviewId(null)} /> : null}
       <NewRuleModal open={showNewRule} onClose={() => setShowNewRule(false)} />

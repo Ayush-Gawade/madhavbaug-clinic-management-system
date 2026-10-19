@@ -1,7 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Tags } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { Badge, Button, Card, EmptyState, ErrorNotice, Label, Loading, Modal, SelectInput, TextInput } from "@/components/ui";
+import { PageHeader } from "@/components/PageHeader";
+import { SkeletonTable } from "@/components/Skeletons";
+import { TD, TH, THead, TR, Table } from "@/components/Table";
+import { toast } from "@/components/Toast";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  Callout,
+  EmptyState,
+  ErrorNotice,
+  Label,
+  Loading,
+  Modal,
+  SelectInput,
+  TextInput,
+} from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { createTreatment, estimateTreatment, listTreatments } from "@/lib/finance";
 
@@ -33,6 +51,7 @@ function CreateTreatmentModal({
       setServiceCategory("");
       setListPrice("");
       setError(null);
+      toast.success("Treatment created");
       onClose();
       void queryClient.invalidateQueries({ queryKey: ["treatments"] });
     },
@@ -51,33 +70,41 @@ function CreateTreatmentModal({
     <Modal open={open} onClose={onClose} title="Create treatment">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <Label>Name</Label>
-          <TextInput required value={name} onChange={(event) => setName(event.target.value)} />
-        </div>
-        <div>
-          <Label>Code</Label>
+          <Label htmlFor="treatment-name">Name</Label>
           <TextInput
             required
+            id="treatment-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="treatment-code">Code</Label>
+          <TextInput
+            required
+            id="treatment-code"
             value={code}
             onChange={(event) => setCode(event.target.value)}
             placeholder="e.g. PK-100"
           />
         </div>
         <div>
-          <Label>Service category</Label>
+          <Label htmlFor="treatment-category">Service category</Label>
           <TextInput
+            id="treatment-category"
             value={serviceCategory}
             onChange={(event) => setServiceCategory(event.target.value)}
             placeholder="e.g. Panchakarma"
           />
         </div>
         <div>
-          <Label>List price</Label>
+          <Label htmlFor="treatment-price">List price</Label>
           <TextInput
             type="number"
             step="0.01"
             min="0"
             required
+            id="treatment-price"
             value={listPrice}
             onChange={(event) => setListPrice(event.target.value)}
           />
@@ -87,7 +114,7 @@ function CreateTreatmentModal({
           <Button variant="ghost" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={mutation.isPending}>
+          <Button type="submit" disabled={mutation.isPending} loading={mutation.isPending}>
             {mutation.isPending ? "Saving…" : "Create"}
           </Button>
         </div>
@@ -117,16 +144,25 @@ function EstimatorCard(): JSX.Element {
   });
 
   return (
-    <Card className="p-4">
-      <h2 className="mb-3 text-sm font-semibold text-slate-800">Cost estimation</h2>
+    <Card>
+      <CardHeader
+        title="Cost estimation"
+        description="Live margin preview as you adjust the discount slider."
+      />
       {isPending ? (
-        <Loading />
+        <div className="p-4">
+          <Loading />
+        </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="space-y-3">
+        <div className="grid gap-5 p-4 lg:grid-cols-3">
+          <div className="space-y-4">
             <div>
-              <Label>Treatment</Label>
-              <SelectInput value={treatmentId} onChange={(event) => setTreatmentId(event.target.value)}>
+              <Label htmlFor="estimate-treatment">Treatment</Label>
+              <SelectInput
+                id="estimate-treatment"
+                value={treatmentId}
+                onChange={(event) => setTreatmentId(event.target.value)}
+              >
                 {treatments?.map((treatment) => (
                   <option key={treatment.id} value={treatment.id}>
                     {treatment.name} — ₹{treatment.list_price}
@@ -135,59 +171,69 @@ function EstimatorCard(): JSX.Element {
               </SelectInput>
             </div>
             <div>
-              <Label>Discount {discount}%</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="estimate-discount">Discount</Label>
+                <span className="text-sm font-bold tabular-nums text-brand-700 dark:text-brand-300">
+                  {discount}%
+                </span>
+              </div>
               <input
                 type="range"
+                id="estimate-discount"
                 min={0}
                 max={99}
                 step={1}
                 value={discount}
                 onChange={(event) => setDiscount(Number(event.target.value))}
-                className="w-full accent-brand-600"
+                className="mt-1 w-full accent-brand-600"
               />
             </div>
-            <div className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               Official max discount at configured boundaries:{" "}
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-ink-secondary">
                 {result ? `${result.official_max_discount_percent}%` : "—"}
               </span>
-            </div>
+            </p>
           </div>
 
           <div className="lg:col-span-2">
             {isFetching || !result ? (
-              <p className="text-sm text-slate-400">Select a treatment to estimate…</p>
+              <div className="flex h-full min-h-32 items-center justify-center rounded-xl border border-dashed border-line text-sm text-ink-muted">
+                Select a treatment to estimate…
+              </div>
             ) : (
-              <div className="space-y-3 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">List price</p>
-                    <p className="font-semibold">₹{result.list_price}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">Estimated revenue</p>
-                    <p className="font-semibold">₹{result.estimated_revenue}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">Direct costs</p>
-                    <p className="font-semibold">₹{result.total_direct_cost}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">Contribution margin</p>
-                    <p className="font-semibold">{result.contribution_margin_percent}%</p>
-                  </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  {[
+                    { label: "List price", value: `₹${result.list_price}` },
+                    { label: "Estimated revenue", value: `₹${result.estimated_revenue}` },
+                    { label: "Direct costs", value: `₹${result.total_direct_cost}` },
+                    { label: "Contribution margin", value: `${result.contribution_margin_percent}%` },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-xl border border-line bg-surface-sunken/60 px-3 py-2.5"
+                    >
+                      <p className="text-[11px] font-medium text-ink-muted">{item.label}</p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-ink">{item.value}</p>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-xs text-slate-500">
-                  Contribution: ₹{result.contribution} · Allocated net profit:
-                  ₹{result.allocated_net_profit} · Max allowable discount:
-                  {result.max_allowable_discount_percent}%
+                <p className="text-xs text-ink-muted">
+                  Contribution: <span className="font-medium text-ink-secondary">₹{result.contribution}</span> ·
+                  Allocated net profit:{" "}
+                  <span className="font-medium text-ink-secondary">₹{result.allocated_net_profit}</span> ·
+                  Max allowable discount:{" "}
+                  <span className="font-medium text-ink-secondary">
+                    {result.max_allowable_discount_percent}%
+                  </span>
                 </p>
                 {result.violates_boundary ? (
-                  <ErrorNotice message={result.warnings[0] ?? "Discount breaches the profitability boundary."} />
+                  <ErrorNotice
+                    message={result.warnings[0] ?? "Discount breaches the profitability boundary."}
+                  />
                 ) : (
-                  <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-                    Within configured profitability boundaries.
-                  </p>
+                  <Callout tone="success">Within configured profitability boundaries.</Callout>
                 )}
               </div>
             )}
@@ -207,64 +253,68 @@ export function FinancePage(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Finance</h1>
-          <p className="text-sm text-slate-500">Treatment catalog, costs and discount estimation.</p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>Create treatment</Button>
-      </div>
+      <PageHeader
+        title="Finance"
+        description="Treatment catalog, costs and discount estimation."
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Create treatment
+          </Button>
+        }
+      />
 
       <EstimatorCard />
 
       <Card>
-        <h2 className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800">
-          Treatment catalog
-        </h2>
+        <CardHeader title="Treatment catalog" description="Every configured service and its direct costs." />
         {isPending ? (
-          <Loading />
+          <SkeletonTable rows={5} cols={6} />
         ) : isError ? (
-          <ErrorNotice message="Failed to load treatments." />
+          <div className="p-4">
+            <ErrorNotice message="Failed to load treatments." />
+          </div>
         ) : !data || data.length === 0 ? (
-          <EmptyState message="No treatments yet. Create one to begin." />
+          <EmptyState
+            icon={<Tags className="h-5 w-5" />}
+            message="No treatments yet. Create one to begin."
+          />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3 text-right">List price</th>
-                <th className="px-4 py-3 text-right">Direct costs</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
+          <Table minClassName="min-w-[720px]">
+            <THead>
+              <TH>Code</TH>
+              <TH>Name</TH>
+              <TH>Category</TH>
+              <TH align="right">List price</TH>
+              <TH align="right">Direct costs</TH>
+              <TH>Status</TH>
+            </THead>
             <tbody>
               {data.map((treatment) => (
-                <tr key={treatment.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                    {treatment.treatment_code}
-                  </td>
-                  <td className="px-4 py-3 font-medium">{treatment.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{treatment.service_category ?? "—"}</td>
-                  <td className="px-4 py-3 text-right font-semibold">₹{treatment.list_price}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">
+                <TR key={treatment.id}>
+                  <TD className="font-mono text-xs text-ink-muted">{treatment.treatment_code}</TD>
+                  <TD className="font-medium text-ink">{treatment.name}</TD>
+                  <TD className="text-ink-secondary">{treatment.service_category ?? "—"}</TD>
+                  <TD align="right" className="font-bold tabular-nums text-ink">
+                    ₹{treatment.list_price}
+                  </TD>
+                  <TD align="right" className="tabular-nums text-ink-secondary">
                     ₹
                     {(
                       Number(treatment.therapist_cost) +
                       Number(treatment.material_cost) +
                       Number(treatment.other_direct_cost)
                     ).toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={treatment.is_active ? "green" : "slate"}>
+                  </TD>
+                  <TD>
+                    <Badge tone={treatment.is_active ? "green" : "slate"} dot={treatment.is_active}>
                       {treatment.is_active ? "active" : "inactive"}
                     </Badge>
-                  </td>
-                </tr>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </Card>
 
