@@ -42,8 +42,9 @@ from app.models.messaging import (
     WhatsAppMessage,
 )
 from app.models.scheduling import FollowUpInstance
+from app.services import auto_reply_queue, rule_engine
 from app.services import media as media_service
-from app.services import rule_engine
+from app.services import settings as settings_service
 from app.services import whatsapp as whatsapp_client
 
 PROMPT_VERSION = "extraction-v2"
@@ -645,9 +646,16 @@ async def analyze_inbound(
     else:
         return None
 
-    return await persist_extraction(
+    extraction = await persist_extraction(
         db, message=message, patient=patient, instance=instance, result=result
     )
+    if await settings_service.is_auto_reply_enabled(db):
+        # The reply runs in its own task: it must never roll back the observation
+        # or the alert persisted above. The worker retries until this
+        # transaction commits, and a broker outage is swallowed so analysis
+        # cannot fail because of the reply.
+        auto_reply_queue.enqueue_auto_reply(message.id)
+    return extraction
 
 
 # -- Queries -----------------------------------------------------------------

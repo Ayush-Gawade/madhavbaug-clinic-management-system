@@ -167,3 +167,57 @@ def store_inbound_message_media(self: Any, message_id: str) -> dict[str, Any]:
     if not result.get("found", False):
         raise self.retry(countdown=2)
     return result
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.workers.tasks.generate_auto_reply",
+    bind=True,
+    max_retries=5,
+)
+def generate_auto_reply(self: Any, source_message_id: str) -> dict[str, Any]:
+    """Write and send the auto-reply for one inbound message.
+
+    Analysis enqueues this before its transaction commits, so the message and
+    its extraction may not be visible on the first attempt; a short retry covers
+    that window. It runs as its own task so a send failure can never roll back
+    the observation or the alert that already succeeded.
+    """
+    from app.services import auto_reply as auto_reply_service
+
+    try:
+        result = _run(
+            lambda session: auto_reply_service.generate_and_send(
+                session, source_message_id=uuid.UUID(source_message_id)
+            )
+        )
+    except Exception as exc:  # pragma: no cover - exercised against live infra
+        raise self.retry(exc=exc) from exc
+    if not result.get("found", False):
+        raise self.retry(countdown=2)
+    return result
+
+
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.workers.tasks.notify_doctor_of_critical_reading",
+    bind=True,
+    max_retries=8,
+)
+def notify_doctor_of_critical_reading(self: Any, auto_reply_id: str) -> dict[str, Any]:
+    """Page the clinic's doctor about an urgent reading, exactly once.
+
+    Separate from the patient-facing reply so an unreachable doctor number can
+    never take back a message the patient already received.
+    """
+    from app.services import auto_reply as auto_reply_service
+
+    try:
+        result = _run(
+            lambda session: auto_reply_service.notify_doctor(
+                session, auto_reply_id=uuid.UUID(auto_reply_id)
+            )
+        )
+    except Exception as exc:  # pragma: no cover - exercised against live infra
+        raise self.retry(exc=exc) from exc
+    if not result.get("found", False):
+        raise self.retry(countdown=2)
+    return result
