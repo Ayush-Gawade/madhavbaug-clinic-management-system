@@ -451,8 +451,8 @@ is tagged `freeze/whatsapp-2026-10-18` and pushed to the project remote.
 Phase D taught the system to *read* a patient's message. Phase E makes it
 *answer* — bounded, reversible, and always downstream of the deterministic rule
 engine. The engine still decides what a reading means; the model only writes the
-WhatsApp sentence that reports that decision back. Backend suite now **230**
-tests; web **32**.
+WhatsApp sentence that reports that decision back. Backend suite now **234**
+tests; web **33**.
 
 Design questions settled before a line was written: the doctor is notified over
 **WhatsApp** at the number held in settings; replies are **LLM-generated per
@@ -500,6 +500,20 @@ only**.
   the patient already received. Analysis enqueues the reply only when the
   feature is on; a broker outage is logged and swallowed, so the safety path
   never depends on it.
+- **E7 template-aware doctor page** (`services/auto_reply.py`,
+  `ai_autoreply_doctor_template` setting, migration `e5f6a7b8c9d0`): Meta
+  accepts free-form text only within 24 hours of the recipient's last message,
+  and a critical reading can arrive at any hour — so a configured template is
+  *always* used for the page rather than only as a fallback. It carries the
+  **patient's name, phone and the alert reason** as positional variables, since
+  a doctor paged at 3am cannot act on "a reading". The stored
+  `message_templates` body supplies the variable order, so the setting holds
+  only Meta's template name and reordering variables needs no deploy. No
+  approved template → recorded on the row and returned as
+  `template_unavailable`, a configuration fault that cannot be retried away;
+  no template configured → free-form text exactly as before. The same change
+  widened `app_settings.description` to `TEXT`: registry prose is written in
+  code and a 255-character ceiling had been turning documentation into a 500.
 
 Safety properties worth stating plainly: the alert is raised by the rule engine
 *before* any model is called, so an outage costs a reply, never a page; expected
