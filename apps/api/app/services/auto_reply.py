@@ -41,7 +41,14 @@ from app.models.ai import AIExtraction
 from app.models.alerts import Alert, AlertPriority
 from app.models.auto_reply import AutoReply, AutoReplyMode, AutoReplyStatus
 from app.models.clinical import Observation, Patient
-from app.models.messaging import DeliveryStatus, MessageDirection, WhatsAppMessage
+from app.models.messaging import (
+    DeliveryStatus,
+    MessageDeliveryEvent,
+    MessageDirection,
+    MessageProcessingStatus,
+    MessageType,
+    WhatsAppMessage,
+)
 from app.services import ai as ai_service
 from app.services import auto_reply_queue
 from app.services import messaging as messaging_service
@@ -471,13 +478,51 @@ async def notify_doctor(db: AsyncSession, *, auto_reply_id: uuid.UUID) -> dict[s
         return {"found": True, "notified": False, "reason": "no_doctor_phone"}
 
     patient = await db.get(Patient, row.patient_id) if row.patient_id else None
-    result = await whatsapp_client.send_text_message(phone, doctor_message(patient, urgent))
+    body = doctor_message(patient, urgent)
+    result = await whatsapp_client.send_text_message(phone, body)
+    now = datetime.now(UTC)
+
+    # Record the page exactly like any other outbound message, so it is
+    # visible in the message log and its delivery status can be tracked.
+    #
+    # It deliberately carries no patient_id: the recipient is the clinic, not
+    # the patient. Attaching it to the patient would drop this internal
+    # escalation text into the conversation the model is later shown as
+    # patient-facing context.
+    outbound = WhatsAppMessage(
+        patient_id=None,
+        direction=MessageDirection.OUTBOUND,
+        provider_message_id=result.provider_message_id,
+        message_type=MessageType.TEXT,
+        to_phone=phone,
+        text_body=body,
+        delivery_status=DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED,
+        processing_status=MessageProcessingStatus.PROCESSED,
+        error_code=result.error_code,
+        error_message=result.error_message,
+        sent_at=now,
+    )
+    db.add(outbound)
+    await db.flush()
+    db.add(
+        MessageDeliveryEvent(
+            message_id=outbound.id,
+            status=outbound.delivery_status or DeliveryStatus.PENDING,
+            occurred_at=now,
+            payload={"kind": "doctor_notification", "auto_reply_id": str(row.id)},
+        )
+    )
+
     if not result.ok:
+        # Commit the evidence before raising: the worker rolls back on a raise,
+        # and a page we failed to send must still be visible to the clinic
+        # rather than vanish with the retry.
+        await db.commit()
         raise AutoReplyError(
             f"Doctor notification failed: {result.error_message or result.error_code}"
         )
 
-    row.doctor_notified_at = datetime.now(UTC)
+    row.doctor_notified_at = now
     await db.flush()
     logger.info(
         "doctor_notified",

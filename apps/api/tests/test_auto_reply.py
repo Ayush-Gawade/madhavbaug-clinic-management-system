@@ -22,6 +22,8 @@ from app.models.alerts import Alert, AlertPriority, AlertStatus, AlertType
 from app.models.auto_reply import AutoReply, AutoReplyMode, AutoReplyStatus
 from app.models.clinical import Observation, ObservationSource, Patient
 from app.models.messaging import (
+    DeliveryStatus,
+    MessageDeliveryEvent,
     MessageDirection,
     MessageProcessingStatus,
     MessageType,
@@ -561,6 +563,70 @@ async def test_urgent_reading_pages_the_doctor_exactly_once(
     _, body = doctor_sends[0]
     assert body.startswith("Urgent reading from Sanket:")
     assert patient_sends[0][1] == row.generated_text
+
+
+@pytest.mark.integration
+async def test_doctor_page_is_recorded_as_an_outbound_message(
+    session_factory: async_sessionmaker[AsyncSession],
+    enqueued: SimpleNamespace,
+    fake_generation: list[str],
+) -> None:
+    """A page that leaves no row is invisible to the clinic.
+
+    Regression: the page used to go straight out through the transport and set
+    ``doctor_notified_at`` without ever writing a message row, so a clinician
+    looking at the message log saw no evidence the doctor had been warned.
+    """
+    async with session_factory() as session:
+        patient = await _patient(session)
+        message = await _inbound(session, patient, body="sugar 52 mg/dL")
+        extraction = await _extraction(session, patient=patient, message=message)
+        observation = await _observe(session, patient=patient, extraction=extraction)
+        await _alert(
+            session, patient=patient, observation=observation, priority=AlertPriority.URGENT
+        )
+        await _enable_auto_reply(session)
+
+        result = await auto_reply_service.generate_and_send(session, source_message_id=message.id)
+        await session.commit()
+        await auto_reply_service.notify_doctor(
+            session, auto_reply_id=uuid.UUID(result["auto_reply_id"])
+        )
+        await session.commit()
+
+        # Scoped by body: the shared schema also holds follow-ups addressed to
+        # the same number from earlier tests.
+        page = (
+            (
+                await session.execute(
+                    select(WhatsAppMessage).where(
+                        WhatsAppMessage.to_phone == "+919359883349",
+                        WhatsAppMessage.text_body.like("Urgent reading from%"),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+        assert page is not None
+        assert page.direction is MessageDirection.OUTBOUND
+        assert page.delivery_status is DeliveryStatus.SENT
+        # No patient_id: attaching the escalation to the patient would feed this
+        # internal text back to the model as patient-facing conversation.
+        assert page.patient_id is None
+
+        event = (
+            (
+                await session.execute(
+                    select(MessageDeliveryEvent).where(MessageDeliveryEvent.message_id == page.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert event is not None
+        assert event.payload["kind"] == "doctor_notification"
 
 
 @pytest.mark.integration
