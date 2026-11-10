@@ -67,6 +67,11 @@ def create_app() -> FastAPI:
             "Clinic Management System with WhatsApp-based patient engagement "
             "and AI-assisted monitoring."
         ),
+        # Interactive docs and the schema expose the full API surface. Keep them
+        # for local development but never publish them from a production edge.
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
     )
 
     # Middleware is applied outermost-first in reverse order of registration:

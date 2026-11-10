@@ -22,6 +22,7 @@ _HARDENED = {
     "whatsapp_webhook_require_signature": True,
     "webhook_allow_unsigned": False,
     "whatsapp_enforce_session_window": True,
+    "public_base_url": "https://clinic.example.com",
     "backend_cors_origins": "https://clinic.example.com",
     "ai_enabled": False,
     "whatsapp_enabled": False,
@@ -61,6 +62,10 @@ def test_development_allows_placeholders() -> None:
         {"backend_cors_origins": "https://clinic.example.com,http://localhost:5173"},
         {"whatsapp_enabled": True, "whatsapp_app_secret": ""},
         {"whatsapp_enabled": True, "whatsapp_enforce_session_window": False},
+        {"whatsapp_enabled": True, "whatsapp_access_token": ""},
+        {"whatsapp_enabled": True, "whatsapp_phone_number_id": ""},
+        {"public_base_url": "http://clinic.example.com"},
+        {"public_base_url": "https://localhost:8000"},
         {"ai_enabled": True, "openai_api_key": ""},
         {"ai_enabled": True, "openai_api_key": "sk-test", "ai_processing_mode": "inline"},
     ],
@@ -70,16 +75,46 @@ def test_unsafe_production_config_is_rejected(overrides: dict[str, object]) -> N
         _prod(**overrides)
 
 
+def _live_whatsapp(**overrides: object) -> Settings:
+    data: dict[str, object] = {
+        "whatsapp_enabled": True,
+        "whatsapp_access_token": "live-token",
+        "whatsapp_phone_number_id": "phone-id",
+        **overrides,
+    }
+    return _prod(**data)
+
+
 def test_production_whatsapp_requires_app_secret() -> None:
-    settings = _prod(whatsapp_enabled=True, whatsapp_app_secret="app-secret-123")
+    settings = _live_whatsapp(whatsapp_app_secret="app-secret-123")
     assert settings.whatsapp_enabled is True
 
 
 def test_production_live_whatsapp_requires_session_window_enforcement() -> None:
     with pytest.raises(ValidationError):
-        _prod(whatsapp_enabled=True, whatsapp_enforce_session_window=False)
-    settings = _prod(whatsapp_enabled=True, whatsapp_enforce_session_window=True)
+        _live_whatsapp(whatsapp_enforce_session_window=False)
+    settings = _live_whatsapp(whatsapp_enforce_session_window=True)
     assert settings.whatsapp_enforce_session_window is True
+
+
+def test_production_live_whatsapp_requires_access_token() -> None:
+    with pytest.raises(ValidationError):
+        _live_whatsapp(whatsapp_access_token="")
+
+
+def test_production_live_whatsapp_requires_phone_number_id() -> None:
+    with pytest.raises(ValidationError):
+        _live_whatsapp(whatsapp_phone_number_id="")
+
+
+def test_production_requires_https_public_base_url() -> None:
+    with pytest.raises(ValidationError):
+        _prod(public_base_url="http://clinic.example.com")
+
+
+def test_production_rejects_localhost_public_base_url() -> None:
+    with pytest.raises(ValidationError):
+        _prod(public_base_url="https://localhost:8000")
 
 
 def test_production_requires_app_secret_even_when_disabled() -> None:

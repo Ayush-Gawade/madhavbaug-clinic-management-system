@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 
+import pytest
+
 from app.core.config import settings
 from app.services import whatsapp
 
@@ -126,3 +128,82 @@ def test_parse_webhook_extracts_messages_and_statuses() -> None:
     assert len(statuses) == 1
     assert statuses[0].status == "delivered"
     assert statuses[0].recipient == "919812345678"
+
+
+@pytest.mark.parametrize(
+    ("access_token", "phone_number_id"),
+    [("", "phone-id"), ("live-token", "")],
+)
+async def test_production_send_fails_closed_with_missing_credentials(
+    monkeypatch, access_token: str, phone_number_id: str
+) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "whatsapp_enabled", True)
+    monkeypatch.setattr(settings, "whatsapp_access_token", access_token)
+    monkeypatch.setattr(settings, "whatsapp_phone_number_id", phone_number_id)
+
+    result = await whatsapp._post_message({})
+
+    assert result.ok is False
+    assert result.dry_run is False
+    assert result.error_code == "whatsapp_not_configured"
+
+
+async def test_development_send_dry_runs_without_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "whatsapp_enabled", True)
+    monkeypatch.setattr(settings, "whatsapp_access_token", "")
+    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "")
+
+    result = await whatsapp._post_message({})
+
+    assert result.ok is True
+    assert result.dry_run is True
+
+
+async def test_production_media_fails_closed_without_access_token(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "whatsapp_enabled", True)
+    monkeypatch.setattr(settings, "whatsapp_access_token", "")
+
+    with pytest.raises(whatsapp.WhatsAppError) as exc_info:
+        await whatsapp.download_media("media-id")
+
+    assert exc_info.value.code == "whatsapp_not_configured"
+
+
+async def test_send_uses_dedicated_whatsapp_timeout(monkeypatch) -> None:
+    captured: dict[str, float] = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self) -> dict[str, object]:
+            return {"messages": [{"id": "wamid.test"}]}
+
+    class _FakeClient:
+        def __init__(self, *, timeout: float) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self) -> _FakeClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(self, *args: object, **kwargs: object) -> _FakeResponse:
+            return _FakeResponse()
+
+    monkeypatch.setattr(whatsapp.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "whatsapp_enabled", True)
+    monkeypatch.setattr(settings, "whatsapp_access_token", "live-token")
+    monkeypatch.setattr(settings, "whatsapp_phone_number_id", "phone-id")
+    monkeypatch.setattr(settings, "whatsapp_timeout_seconds", 12.5)
+
+    result = await whatsapp._post_message({"test": True})
+
+    assert result.ok is True
+    assert result.provider_message_id == "wamid.test"
+    assert captured["timeout"] == 12.5

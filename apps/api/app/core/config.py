@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     whatsapp_phone_number_id: str = ""
     whatsapp_business_account_id: str = ""
     whatsapp_app_secret: str = ""
+    # Outbound Graph API calls use a dedicated timeout so a slow Meta API cannot
+    # inherit the (much longer) AI provider timeout.
+    whatsapp_timeout_seconds: float = Field(default=30.0, gt=0)
     # Fail-closed webhook verification (PRD AC-007). Signatures are required by
     # default; an unsigned payload is rejected with 403.
     whatsapp_webhook_require_signature: bool = True
@@ -172,10 +175,18 @@ class Settings(BaseSettings):
                 "WHATSAPP_ENFORCE_SESSION_WINDOW must be true in production so "
                 "business-initiated messages outside the 24h window use a template"
             )
+        if self.whatsapp_enabled and not self.whatsapp_access_token.strip():
+            problems.append("WHATSAPP_ACCESS_TOKEN is required when WHATSAPP_ENABLED is true")
+        if self.whatsapp_enabled and not self.whatsapp_phone_number_id.strip():
+            problems.append("WHATSAPP_PHONE_NUMBER_ID is required when WHATSAPP_ENABLED is true")
         if self.ai_enabled and not self.openai_api_key:
             problems.append("OPENAI_API_KEY is required when AI_ENABLED is true")
         if self.ai_enabled and self.ai_processing_mode != "deferred":
             problems.append("AI_PROCESSING_MODE must be deferred in production")
+        if not self.public_base_url.startswith("https://"):
+            problems.append("PUBLIC_BASE_URL must use https in production")
+        if any(host in self.public_base_url for host in _INSECURE_CORS_HOSTS):
+            problems.append("PUBLIC_BASE_URL must not point to localhost in production")
         if any(host in self.backend_cors_origins for host in _INSECURE_CORS_HOSTS):
             problems.append("BACKEND_CORS_ORIGINS must not include localhost addresses")
 

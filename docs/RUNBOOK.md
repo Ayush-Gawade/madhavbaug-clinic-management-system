@@ -54,12 +54,18 @@ boot** unless every item below is satisfied (PRD AC-012 / Risk 8):
 | `MEDIA_SIGNING_SECRET`       | unique, not the development default                       |
 | `BOOTSTRAP_ADMIN_PASSWORD`   | changed from the placeholder                              |
 | `WHATSAPP_VERIFY_TOKEN`      | changed from the placeholder                              |
-| `WHATSAPP_APP_SECRET`        | required when `WHATSAPP_ENABLED=true`                     |
+| `WHATSAPP_APP_SECRET`        | required in production even when messaging is disabled    |
+| `WHATSAPP_ACCESS_TOKEN`      | required when `WHATSAPP_ENABLED=true`                     |
+| `WHATSAPP_PHONE_NUMBER_ID`   | required when `WHATSAPP_ENABLED=true`                     |
+| `WHATSAPP_ENFORCE_SESSION_WINDOW` | `true` when `WHATSAPP_ENABLED=true`                 |
+| `PUBLIC_BASE_URL`            | must be `https://…`; must not contain `localhost`/`127.0.0.1` |
 | `OPENAI_API_KEY`             | required when `AI_ENABLED=true`                           |
 | `BACKEND_CORS_ORIGINS`       | real origin(s); must not contain `localhost`/`127.0.0.1`  |
 
 Keep `WHATSAPP_ENABLED=false` and `AI_ENABLED=false` until the clinic has
 approved live patient messaging / AI data handling (see Open Questions 12, 14).
+`/docs`, `/redoc`, and `/openapi.json` are disabled automatically when
+`APP_ENV=production`.
 
 ## 4. Standard redeploy
 
@@ -209,5 +215,7 @@ currently a local volume.
 - [ ] `WHATSAPP_ENFORCE_SESSION_WINDOW=true` when `WHATSAPP_ENABLED=true` so
       business-initiated messages outside the 24h window use approved templates.
 - [ ] Debug off; no dev CORS origins; secrets unique and stored outside git.
+- [ ] `/docs`, `/redoc`, and `/openapi.json` return 404 in production.
+- [ ] `PUBLIC_BASE_URL` uses `https://` and the real public hostname.
 - [ ] Backups scheduled and a restore has been rehearsed.
 - [ ] Only 80/443 reachable from the internet.

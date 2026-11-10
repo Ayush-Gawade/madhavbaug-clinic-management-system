@@ -1,8 +1,10 @@
 """WhatsApp Cloud API wrapper: webhook verification, parsing, send and media.
 
-When ``whatsapp_enabled`` is false or no access token is configured the send
+Outside production, a disabled integration or missing credentials make the send
 paths operate in a deterministic dry-run mode (synthetic ids, no network) so
-local development and tests do not require Meta credentials.
+local development and tests do not require Meta credentials. In production the
+paths fail closed instead: a live-enabled integration with missing credentials
+never reports a synthetic success.
 """
 
 from __future__ import annotations
@@ -231,16 +233,34 @@ def _graph_url(path: str) -> str:
     return f"{base}/{settings.whatsapp_api_version}/{path.lstrip('/')}"
 
 
+def _dry_run_result() -> SendResult:
+    return SendResult(ok=True, provider_message_id=f"local-{uuid.uuid4().hex}", dry_run=True)
+
+
+def _missing_credentials_result() -> SendResult:
+    return SendResult(
+        ok=False,
+        error_code="whatsapp_not_configured",
+        error_message=(
+            "WhatsApp is enabled but WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID is missing"
+        ),
+    )
+
+
 async def _post_message(payload: dict[str, Any]) -> SendResult:
-    if not settings.whatsapp_enabled or not settings.whatsapp_access_token:
-        return SendResult(ok=True, provider_message_id=f"local-{uuid.uuid4().hex}", dry_run=True)
+    if not settings.whatsapp_enabled:
+        return _dry_run_result()
+    if not settings.whatsapp_access_token or not settings.whatsapp_phone_number_id:
+        if settings.is_production:
+            return _missing_credentials_result()
+        return _dry_run_result()
 
     headers = {
         "Authorization": f"Bearer {settings.whatsapp_access_token}",
         "Content-Type": "application/json",
     }
     try:
-        async with httpx.AsyncClient(timeout=settings.openai_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.whatsapp_timeout_seconds) as client:
             response = await client.post(
                 _graph_url(f"{settings.whatsapp_phone_number_id}/messages"),
                 json=payload,
@@ -300,11 +320,18 @@ async def send_template_message(
 
 async def download_media(media_id: str) -> tuple[bytes, str | None]:
     """Fetch media bytes for an inbound media id (two-step Graph call)."""
-    if not settings.whatsapp_enabled or not settings.whatsapp_access_token:
+    if not settings.whatsapp_enabled:
+        return b"", None
+    if not settings.whatsapp_access_token:
+        if settings.is_production:
+            raise WhatsAppError(
+                "whatsapp_not_configured",
+                "WhatsApp is enabled but WHATSAPP_ACCESS_TOKEN is missing",
+            )
         return b"", None
     headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
     try:
-        async with httpx.AsyncClient(timeout=settings.openai_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.whatsapp_timeout_seconds) as client:
             meta = await client.get(_graph_url(media_id), headers=headers)
             meta.raise_for_status()
             info = meta.json()

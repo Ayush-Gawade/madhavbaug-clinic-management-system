@@ -1,4 +1,4 @@
-{$PUBLIC_HOST:localhost} {
+madhavbaug-clinic.duckdns.org {
 	encode gzip zstd
 
 	@api path /api/* /health /health/* /docs /openapi.json

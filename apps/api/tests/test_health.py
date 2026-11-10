@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import settings
 from app.main import create_app
 
 
@@ -55,6 +56,16 @@ async def test_readiness_is_503_when_redis_down(client, monkeypatch) -> None:
     assert body["status"] == "degraded"
     assert body["components"]["database"] == "ok"
     assert body["components"]["redis"].startswith("error")
+
+
+async def test_api_docs_are_disabled_in_production(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "app_env", "production")
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            response = await client.get(path)
+            assert response.status_code == 404, path
 
 
 async def test_readiness_is_503_when_database_down(monkeypatch) -> None:
